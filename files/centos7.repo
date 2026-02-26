@@ -1,0 +1,11 @@
+[base-local]
+name=CentOS-7.9.2009 - Base
+baseurl=base_local_url
+enabled=1
+gpgcheck=0
+
+[epel-local]
+name=epel
+baseurl=REPO_LOCAL/epel/7/$basearch/
+enabled=1
+gpgcheck=0

@@ -1,0 +1,8 @@
+---
+- hosts: hosts,!localhost
+  gather_facts: no
+  pre_tasks:
+    - name: Disable SELinux
+      shell: "(setenforce 0 || exit 0)"
+  roles:
+    - role: ssh_authorize_delete

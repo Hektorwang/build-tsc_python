@@ -1,0 +1,24 @@
+# 本文件 '#' 开头的行表示注释, ';' 开头的行表示样例
+# 该文件需遵循 ansible 的 inventory 配置格式
+# 这个样例来自 tsc_changehostname
+# 所有待操作节点需要配置到 hosts 段, 如现场有自行分组需要, 可根据需要设置组名和各组内主机
+
+# 设置主机的 python 环境, 如ansible 自动探测该主机 python 环境失败, 
+# 可在 hosts 段主机配置中增加该主机的 python 命令路径
+# 不支持 python2, python3 版本需高于3.6, 建议在目的主机安装 tsc_tools-full, 或 tsc_python
+# 如:
+; 10.1.123.131 ansible_ssh_pass="该主机root用户密码" ansible_ssh_port="该主机ssh服务端口" ansible_python_interpreter=/home/python3/bin/python3
+
+[hosts]
+# 需要批量操作的主机
+; 10.1.123.131 hostname="需要修改的主机名" ansible_ssh_pass="该主机root用户密码" ansible_ssh_port="该主机ssh服务端口"
+; 10.1.123.132 hostname="需要修改的主机名" ansible_ssh_pass="该主机root用户密码" ansible_ssh_port="该主机ssh服务端口"
+; 10.1.123.133 hostname="需要修改的主机名" ansible_ssh_pass="该主机root用户密码" ansible_ssh_port="该主机ssh服务端口"
+
+[all:vars]
+# 必须为root
+ansible_user=root
+; 如所有的主机 ssh 端口和 root 密码均一致,
+; 则无需在每个主机条目上配置, 只要在这里配置一次就行
+; ansible_ssh_pass="该主机root用户密码"
+; ansible_ssh_port="该主机ssh服务端口"

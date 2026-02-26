@@ -1,0 +1,14 @@
+---
+- name: "Read ssh pubkey"
+  ansible.builtin.set_fact:
+    ssh_authorize_create_remote_pubkey: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+  delegate_to: localhost
+  connection: local
+
+- name: "Append ssh authorized_keys"
+  ansible.builtin.lineinfile:
+    path: "~/.ssh/authorized_keys"
+    line: "{{ ssh_authorize_create_remote_pubkey }}"
+    create: true
+    mode: "0600"
+    state: present

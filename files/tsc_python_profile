@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+export MAMBA_ROOT_PREFIX=/home/tsc/tsc_tools/micromamba
+eval "$("${MAMBA_ROOT_PREFIX}"/bin/micromamba shell hook --shell bash)"
+micromamba activate tsc_python
+export ANSIBLE_CONFIG=/home/tsc/tsc_tools/ansible/ansible.cfg

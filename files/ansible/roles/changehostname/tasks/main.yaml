@@ -1,0 +1,20 @@
+---
+- name: "Set hostname"
+  ansible.builtin.hostname:
+    name: "{{ hostname }}"
+    use: "redhat"
+  when: ansible_os_family == "RedHat" and ansible_distribution_major_version == "6"
+
+- name: "Set hostname"
+  ansible.builtin.hostname:
+    name: "{{ hostname }}"
+    use: "systemd"
+  when: ansible_service_mgr == "systemd"
+
+- name: "Set hosts file"
+  ansible.builtin.lineinfile:
+    path: "/etc/hosts"
+    line: "{{ ansible_ssh_host }} {{ hostname }}"
+    create: true
+    mode: "0644"
+    state: present

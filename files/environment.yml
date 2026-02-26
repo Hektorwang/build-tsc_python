@@ -1,0 +1,45 @@
+name: tsc_python
+channels:
+  - conda-forge
+dependencies:
+  - _openmp_mutex=4.5
+  - bcrypt
+  - bzip2=1.0.8
+  - ca-certificates
+  - cryptography
+  - cx_oracle=8.3.0
+  - cyrus-sasl=2.1.28
+  - icu=75.1
+  - keyutils=1.6.1
+  - krb5=1.21.3
+  - libedit=3.1.20250104
+  - libexpat=2.7.0
+  - libffi=3.4.6
+  - libgcc-ng=15.1.0
+  - libgcc=15.1.0
+  - libgomp=15.1.0
+  - liblzma=5.8.1
+  - libnsl=2.0.1
+  - libntlm
+  - libpq=17.5
+  - libsqlite=3.50.2
+  - libstdcxx-ng=15.1.0
+  - libstdcxx=15.1.0
+  - libuuid=2.38.1
+  - libxcrypt=4.4.36
+  - libzlib=1.3.1
+  - ncurses=6.5
+  - openldap=2.6.10
+  - openssl=3.5.1
+  - pip=25.1.1
+  - psycopg2=2.9.10
+  - python_abi=3.12
+  - python=3.12.11
+  - readline=8.2
+  # - rust=1.88.0 
+  - setuptools=80.9.0
+  - sqlite=3.50.2
+  - tk=8.6.13
+  - tzdata=2025b
+  - uv=0.8.2
+  - wheel=0.45.1

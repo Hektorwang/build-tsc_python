@@ -1,0 +1,7 @@
+/tmp
+/output
+/.profile
+/.buildx-cache
+/log
+/.mypy_cache
+!.gitignore

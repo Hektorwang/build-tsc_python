@@ -1,0 +1,14 @@
+---
+- name: "read ssh pubkey"
+  set_fact:
+    pubkey: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+  delegate_to: localhost
+  connection: local
+
+- name: "delete ssh authorized_keys"
+  lineinfile:
+    path: "~/.ssh/authorized_keys"
+    line: "{{ pubkey }}"
+    create: yes
+    mode: "0600"
+    state: absent

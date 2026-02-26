@@ -1,0 +1,20 @@
+---
+- name: Create ssh key
+  hosts: localhost
+  gather_facts: false
+  pre_tasks:
+    - name: Disable SELinux
+      ansible.posix.selinux:
+        state: disabled
+  roles:
+    - role: ssh_authorize_create_localhost
+
+- name: Dispatch ssh key
+  hosts: hosts,!localhost
+  gather_facts: false
+  pre_tasks:
+    - name: Disable SELinux
+      ansible.posix.selinux:
+        state: disabled
+  roles:
+    - role: ssh_authorize_create_remote

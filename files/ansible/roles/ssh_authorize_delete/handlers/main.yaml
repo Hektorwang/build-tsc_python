@@ -1,0 +1,13 @@
+# - name: get log_names
+#   listen: get_logs
+#   find: path="/root/.ansible/tmp/log" recurse=no
+#   register: log_names
+
+# - name: fetch logs
+#   listen: get_logs
+#   fetch:
+#     src: "{{ item.path }}"
+#     dest: "{{ LOG_DIR }}/{{ datetime }}/{{ inventory_hostname }}/"
+#     faile_on_mssing: yes
+#     flat: yes
+#   with_items: "{{ log_names.files }}"
