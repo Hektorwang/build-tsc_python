@@ -27,8 +27,8 @@ pack_installer() {
 # Build Configuration
 build_arch=${build_arch}
 build_os_distribution_file_variety=${build_os_distribution_file_variety}
-build_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-build_timestamp=${D14}
+build_date=${BUILD_DATE}
+build_timestamp=${BUILD_TIMESTAMP}
 build_version=${version}
 
 EOF
@@ -86,18 +86,18 @@ EOF
   "version": "${version}",
   "filename": "${OUTPUT_BASENAME}",
   "build": {
-    "date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-    "timestamp": "${D14}",
+    "build_date": "${BUILD_DATE}",
+    "timestamp": ${BUILD_TIMESTAMP},
     "architecture": "${build_arch}",
     "os_variant": "${build_os_distribution_file_variety}",
-    "builder": "$(whoami)@$(hostname)"
+    "builder": "${BUILD_BUILDER}"
   },
   "checksums": {
     "sha256": "$(sha256sum "${OUTPUT_BASENAME}" | awk '{print $1}')"
   },
   "size_bytes": $(stat -c%s "${OUTPUT_BASENAME}" 2>/dev/null || stat -f%z "${OUTPUT_BASENAME}"),
-  "python_version": "3.11.15",
-  "micromamba_version": "2.5.0"
+  "python_version": "${PYTHON_VERSION}",
+  "micromamba_version": "${MICROMAMBA_VERSION}"
 }
 EOF
     LOGINFO "Generated metadata: ${OUTPUT_BASENAME}.json"
@@ -108,7 +108,10 @@ EOF
     LOGSUCCESS "${FUNCNAME[0]}"
 }
 
-D14="$(date +%Y%m%d%H%M%S)"
+BUILD_DATE="$(date +%Y%m%d)"
+BUILD_TIMESTAMP="$(date +%s)"
+BUILD_BUILDER="$(whoami)@$(hostname)"
+
 ARCH="$(arch)"
 
 version="$(grep -oP "^\s*(#+)?\s*Version=\s*?\K\S+$" "${WORK_DIR}"/release-note.md | head -n1)"
@@ -117,7 +120,10 @@ system_info="$(detect_system_info)"
 build_arch="$(echo "${system_info}" | jq -r .machine_architecture)"
 build_os_distribution_file_variety="$(echo "${system_info}" | jq -r .os_distribution_file_variety)"
 
-OUTPUT_NAME="tsc_python-${version}-${build_os_distribution_file_variety}-${ARCH}-${D14}"
+PYTHON_VERSION="${PYTHON_VERSION:-unknown}"
+MICROMAMBA_VERSION="${MICROMAMBA_VERSION:-unknown}"
+
+OUTPUT_NAME="tsc_python-${version}-${build_os_distribution_file_variety}-${ARCH}-${BUILD_DATE}"
 OUTPUT_FILE="${OUTPUT_DIR}"/"${OUTPUT_NAME}".sh
 # OUTPUT_FILE="${OUTPUT_DIR}"/"${OUTPUT_NAME}".tar.gz
 mkdir -p "${OUTPUT_DIR}"

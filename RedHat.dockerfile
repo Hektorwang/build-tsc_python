@@ -2,10 +2,15 @@ FROM centos:7.9.2009 AS builder
 # FROM devtools/redhat:7.9-x86_64-20250713 AS builder
 
 ARG MICROMAMBA_VERSION=2.5.0   # 仅用于元数据记录，下载由 build-local.sh 完成
+ARG PYTHON_VERSION=unknown
 ARG MICROMAMBA_DIR=/home/tsc/tsc_tools/micromamba
 ARG ENV_NAME=tsc_python
 ARG REPO_LOCAL=http://192.168.19.22
 ARG MAMBA_ROOT_PREFIX=/home/tsc/tsc_tools/micromamba
+
+# 将构建参数导出为环境变量，供容器内 build.sh 使用
+ENV MICROMAMBA_VERSION=${MICROMAMBA_VERSION} \
+    PYTHON_VERSION=${PYTHON_VERSION}
 
 WORKDIR /home/tsc/build_micromamba
 

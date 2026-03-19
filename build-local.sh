@@ -100,6 +100,9 @@ else
     cp "${env_yml_src}" "${env_yml_tmp}"
 fi
 
+# 从实际使用的 environment.yml 中解析 python 版本，传给容器内 build.sh
+python_version_actual="$(grep -oP '(?<=- python=)\S+' "${env_yml_tmp}")"
+
 # ─────────────────────────────────────────────
 # 预下载 micromamba 到 files/tmp/micromamba
 # 若已存在且版本匹配则跳过，否则重新下载
@@ -177,6 +180,7 @@ build_target() {
         --target builder \
         --tag "${image_tag}" \
         --build-arg MICROMAMBA_VERSION="${micromamba_version}" \
+        --build-arg PYTHON_VERSION="${python_version_actual}" \
         --build-arg REPO_LOCAL="${repo_local}" \
         --file "${dockerfile}" \
         "${WORK_DIR}" \
