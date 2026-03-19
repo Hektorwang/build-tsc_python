@@ -1,5 +1,6 @@
-ansible==11.7.0
-beautifulsoup4
+# ansible
+# ansible==11.7.0
+# beautifulsoup4
 # black
 # celery
 # django-cors-headers
@@ -21,46 +22,53 @@ beautifulsoup4
 # drf-spectacular
 # drf-spectacular-sidecar
 # fastapi
-ipython
+# ipython
 # isort
 # jieba
-loguru
-lxml
-markdown-it-py[plugins]
+# loguru
+# lxml
+# markdown-it-py[plugins]
 # mkdocs
 # mkdocs-get-deps
 # mkdocs-material
 # mkdocs-material-extensions
 # mypy-extensions
-numpy==2.1.1
-openpyxl
-pandas-stubs
-pandas==2.2.3
-paramiko
+# numpy
+# numpy==2.1.1
+# openpyxl
+# pandas
+# pandas-stubs
+# pandas==2.2.3
+# paramiko
 # passlib
-pexpect
 # pillow
 # pip2pi
-psutil
-pydantic
+# pydantic
 # pydantic-ai
-pyinotify
-pylint
+# pylint
 # pylint-django
 # pylint-plugin-utils
-pymysql
-python-gnupg
+# pymysql
+# python-gnupg
 # redis
-requests
+# requests
 # rich
-salt==3005
-sqlalchemy
+# salt
+# salt==3007.13
+# sqlalchemy
 # supervisor==4.2.5
-toml
+# toml
 # tqdm
-urllib3
+# urllib3
 # uvicorn
-watchdog
-yq
-xlrd
+# watchdog
+# xlrd
+# xlsxwriter
 # zabbix-utils[async]
+ansible-runner
+ansible==2.9.27
+pexpect
+psutil
+pyinotify
+yq
+fastmcp

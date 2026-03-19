@@ -1,14 +1,14 @@
 # FROM openeuler/openeuler:24.03-lts-sp1 AS builder
 FROM openeuler/openeuler:22.03-lts-sp3 AS builder
 
-ARG MICROMAMBA_VERSION=2.3.0
+ARG MICROMAMBA_VERSION=2.5.0   # 仅用于元数据记录，下载由 build-local.sh 完成
 ARG MICROMAMBA_DIR=/home/tsc/tsc_tools/micromamba
 ARG ENV_NAME=tsc_python
 ARG MAMBA_ROOT_PREFIX=/home/tsc/tsc_tools/micromamba
 
 WORKDIR /home/tsc/build_micromamba
 
-RUN yum install --assumeyes --quiet \
+RUN yum install --assumeyes \
         curl \
         tar \
         jq \
@@ -19,17 +19,13 @@ RUN yum install --assumeyes --quiet \
     yum clean all && rm -rf /var/cache/yum && \
     ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && echo "Asia/Shanghai" > /etc/timezone
 
-RUN case $(arch) in \
-        x86_64) URL_TAG=linux-64 ;; \
-        aarch64) URL_TAG=linux-aarch64 ;;\
-    esac && \
-    rm -rf /tmp/download && mkdir -p /tmp/download/ && cd /tmp/download && \
-    curl --fail --insecure --location --remote-header-name --remote-name \
-        "https://micro.mamba.pm/api/micromamba/${URL_TAG}/${MICROMAMBA_VERSION}"
+# micromamba 由 build-local.sh 预下载到 files/tmp/，此处直接 COPY 进容器
+COPY ./files/tmp/micromamba /tmp/micromamba
 RUN rm -rf "${MICROMAMBA_DIR}" && mkdir -p "${MICROMAMBA_DIR}" && \
-    find /tmp/download/ -type f -name "micromamba-*" -exec tar -xf {} -C "${MICROMAMBA_DIR}" \;
+    tar -xf /tmp/micromamba -C "${MICROMAMBA_DIR}"
 
-COPY ./files/.condarc ./files/pip.conf ./files/environment.yml /tmp/
+# environment.yml 由 build-local.sh 生成到 files/tmp/（支持 --python-version 覆盖）
+COPY ./files/.condarc ./files/pip.conf ./files/tmp/environment.yml /tmp/
 
 RUN \cp /tmp/.condarc  /root/.condarc && \
     mkdir -p /root/.config/pip && \cp /tmp/pip.conf /root/.config/pip/pip.conf && \
@@ -37,9 +33,8 @@ RUN \cp /tmp/.condarc  /root/.condarc && \
     eval "$("${MICROMAMBA_DIR}/bin/micromamba" shell hook --shell bash)" && \
     micromamba env create -f "/tmp/environment.yml" --yes --no-pyc --use-uv --name "${ENV_NAME}"
 
-COPY ./files/requirements.txt ./files/.cargo_config /tmp/
-RUN rm -rf /root/.cargo && mkdir -p /root/.cargo && \cp /tmp/.cargo_config /root/.cargo/config && \
-    export MAMBA_ROOT_PREFIX && \
+COPY ./files/requirements.txt /tmp/
+RUN export MAMBA_ROOT_PREFIX && \
     eval "$("${MICROMAMBA_DIR}/bin/micromamba" shell hook --shell bash)" && \
     micromamba activate "${ENV_NAME}" && \
     [[ $(arch) == "aarch64" ]] && export CFLAGS="-D__ARM_ARCH=8" || true && \
@@ -48,8 +43,7 @@ RUN rm -rf /root/.cargo && mkdir -p /root/.cargo && \cp /tmp/.cargo_config /root
 COPY ./files/ /home/tsc/build_micromamba/
 RUN sh /home/tsc/build_micromamba/build.sh
 
+# exporter 阶段仅供 buildx --target exporter 使用
+# 本地构建使用 build-local.sh，直接从 builder 容器中 docker cp 取出产物
 FROM scratch AS exporter
 COPY --from=builder /home/tsc/build_micromamba/output/* /export/
-
-# ARG CACHE_BUSTER_GET_MICROMAMBA
-# RUN echo "Cache buster for get_micromamba: ${CACHE_BUSTER_GET_MICROMAMBA}"
