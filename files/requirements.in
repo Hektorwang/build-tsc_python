@@ -1,5 +1,5 @@
 # ansible
-# ansible==11.7.0
+# ansible-runner
 # beautifulsoup4
 # black
 # celery
@@ -54,10 +54,7 @@
 # requests
 # rich
 # salt
-# salt==3007.13
 # sqlalchemy
-# supervisor==4.2.5
-# toml
 # tqdm
 # urllib3
 # uvicorn
@@ -65,10 +62,10 @@
 # xlrd
 # xlsxwriter
 # zabbix-utils[async]
-ansible-runner
 ansible==2.9.27
 pexpect
 psutil
 pyinotify
 yq
 fastmcp
+asyncssh

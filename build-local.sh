@@ -21,8 +21,8 @@ trap gracefully_abort INT
 # 默认参数
 target="all"
 no_cache=""
-micromamba_version="2.5.0"
-repo_local="http://192.168.19.22"
+micromamba_version=""
+repo_local=""
 python_version=""
 
 _usage() {
@@ -34,10 +34,14 @@ Build TSC Python distribution using local Docker containers (same architecture).
 Options:
   -t, --target TARGET         Build target: euler, redhat, all (default: all)
   -n, --no-cache              Disable Docker build cache
-  -m, --micromamba-ver V      Micromamba version (default: 2.5.0)
-  -r, --repo-local URL        Internal yum repo URL for RedHat (default: http://192.168.19.22)
-  -p, --python-version V      Override Python version in environment.yml (e.g. 3.11.15)
+  -m, --micromamba-ver V      Micromamba version (overrides build.conf)
+  -r, --repo-local URL        Internal yum repo URL for RedHat (overrides build.conf)
+  -p, --python-version V      Override Python version in environment.yml (overrides build.conf)
   -h, --help                  Show this help
+
+Config file:
+  build.conf (INI format, [build] section) is read when a parameter is not specified on the command line.
+  Keys: micromamba_ver, repo_local, python_version
 
 Note:
   This script builds for the CURRENT machine architecture: ${ARCH}
@@ -66,6 +70,22 @@ while true; do
         *)                    LOGERROR "Unknown argument: $1"; exit 1 ;;
     esac
 done
+
+# 读取配置文件，仅在参数未通过命令行指定时生效
+build_conf="${WORK_DIR}/build.conf"
+if [[ -f "${build_conf}" ]]; then
+    [[ -z "${micromamba_version}" ]] && micromamba_version="$(get_ini_value "${build_conf}" build micromamba_ver 2>/dev/null || true)"
+    [[ -z "${repo_local}" ]]         && repo_local="$(get_ini_value "${build_conf}" build repo_local 2>/dev/null || true)"
+    [[ -z "${python_version}" ]]     && python_version="$(get_ini_value "${build_conf}" build python_version 2>/dev/null || true)"
+else
+    LOGWARNING "build.conf not found, using built-in defaults"
+fi
+
+# 最终兜底默认值
+micromamba_version="${micromamba_version:-2.5.0}"
+repo_local="${repo_local:-http://192.168.19.22}"
+
+LOGINFO "Config | micromamba: ${micromamba_version} | repo_local: ${repo_local} | python_version: ${python_version:-<from environment.yml>}"
 
 case "${target}" in
     euler|redhat|all) ;;

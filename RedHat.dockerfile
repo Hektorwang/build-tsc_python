@@ -44,7 +44,7 @@ COPY ./files/.condarc ./files/pip.conf ./files/tmp/environment.yml /tmp/
 RUN \cp /tmp/.condarc  /root/.condarc && \
     mkdir -p /root/.config/pip && \cp /tmp/pip.conf /root/.config/pip/pip.conf && \
     eval "$("${MICROMAMBA_DIR}/bin/micromamba" shell hook --shell bash)" && \
-    micromamba env create -f "/tmp/environment.yml" --yes --no-pyc --use-uv --name "${ENV_NAME}"
+    micromamba env create -f "/tmp/environment.yml" --yes --no-pyc -c conda-forge --use-uv --name "${ENV_NAME}"
 
 COPY ./files/requirements.txt /tmp/
 RUN export MAMBA_ROOT_PREFIX && \

@@ -3,12 +3,12 @@
 ## 说明
 
 1. 用于构建 tsc 标准化发布的 python 发布包.
-2. 集成 `python3.11.15`（可通过参数覆盖版本）, 使用 `micromamba` 管理环境, 通过 `makeself` 打包为自解压安装包.
+2. 集成 `python3.13.12`（可通过参数覆盖版本）, 使用 `micromamba` 管理环境, 通过 `makeself` 打包为自解压安装包.
 3. 分 `Euler` 和 `RedHat` 两个发行版变体, 分 `x86_64` 和 `aarch64` 两种架构, 共四个构建目标.
 
 ## 目录结构
 
-```
+```text
 .
 ├── build-local.sh          # 本地构建入口脚本
 ├── Euler.dockerfile        # openEuler / HCE / Euler 构建镜像
@@ -51,13 +51,24 @@ bash build-local.sh -t redhat
 
 ### 参数说明
 
-```
+```text
 -t, --target TARGET         构建目标: euler, redhat, all（默认: all）
 -n, --no-cache              禁用 Docker 构建缓存
--m, --micromamba-ver V      指定 micromamba 版本（默认: 2.5.0）
--r, --repo-local URL        RedHat 构建使用的内网 yum 源地址
--p, --python-version V      覆盖 Python 版本（默认使用 environment.yml 中的版本）
+-m, --micromamba-ver V      指定 micromamba 版本（覆盖 build.conf）
+-r, --repo-local URL        RedHat 构建使用的内网 yum 源地址（覆盖 build.conf）
+-p, --python-version V      覆盖 Python 版本（覆盖 build.conf）
 -h, --help                  显示帮助
+```
+
+### 配置文件
+
+常用参数可写入 `build.conf`，避免每次手动传参。命令行参数优先级高于配置文件。
+
+```ini
+[build]
+micromamba_ver = 2.5.0
+repo_local     = http://192.168.1.100
+python_version = 3.13.12
 ```
 
 ### 覆盖 Python 版本
@@ -79,7 +90,7 @@ rm files/tmp/micromamba files/tmp/micromamba.version
 
 产物输出到 `output/<target>-<arch>/`, 每次构建包含三个文件：
 
-```
+```bash
 tsc_python-<version>-<os>-<arch>-<timestamp>.sh        # makeself 自解压安装包
 tsc_python-<version>-<os>-<arch>-<timestamp>.sh.sha256 # SHA256 校验文件
 tsc_python-<version>-<os>-<arch>-<timestamp>.sh.json   # 构建元数据（版本、git 信息等）
@@ -102,7 +113,7 @@ tsc_python-<version>-<os>-<arch>-<timestamp>.sh.json   # 构建元数据（版�
 
 ## 内网部署说明
 
-构建环境最终部署在内网 Gitea, 需自行提供：
+若构建环境最终部署在内网 Gitea, 需自行提供：
 
 - PyPI 源（在 `files/pip.conf` 中配置）
 - conda-forge 镜像（在 `files/.condarc` 中配置）

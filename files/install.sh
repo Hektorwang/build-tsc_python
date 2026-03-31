@@ -33,11 +33,13 @@ _install() {
     backup_dir_with_rotation "${DST_DIR}"
     mkdir -p /home/tsc/tsc_tools
     LOGINFO "Installation in progress, This will take about 1-5 minutes."
+    mkdir -p /home/tsc/tsc_tools/
     tar xzf "${WORK_DIR}"/micromamba.tar.gz -C /home/tsc/tsc_tools/
     \cp "${WORK_DIR}"/release-note.md \
         "${WORK_DIR}"/readme.md \
         "${WORK_DIR}"/install.sh \
         "${DST_DIR}"/
+    mkdir -p /home/tsc/tsc_tools/modules/
     \cp -r "${WORK_DIR}"/ansible /home/tsc/tsc_tools/
     \cp -r "${WORK_DIR}"/modules/* /home/tsc/tsc_tools/modules/
     if [[ -f /home/tsc/tsc_profile ]]; then
@@ -47,9 +49,11 @@ _install() {
     echo 'source /home/tsc/tsc_python_profile' >>/home/tsc/tsc_profile
     echo "################################################################################
 Usage: 
-    source /home/tsc/tsc_python_profile to activate micromamba environment
-    or
-    source /home/tsc/tsc_profile to activate full tsc environment.
+    # activate micromamba environment
+    source /home/tsc/tsc_python_profile
+    # or
+    # activate full tsc environment
+    source /home/tsc/tsc_profile to
 ################################################################################"
 }
 

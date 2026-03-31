@@ -89,8 +89,7 @@ EOF
     "build_date": "${BUILD_DATE}",
     "timestamp": ${BUILD_TIMESTAMP},
     "architecture": "${build_arch}",
-    "os_variant": "${build_os_distribution_file_variety}",
-    "builder": "${BUILD_BUILDER}"
+    "os_variant": "${build_os_distribution_file_variety}"
   },
   "checksums": {
     "sha256": "$(sha256sum "${OUTPUT_BASENAME}" | awk '{print $1}')"
@@ -110,7 +109,6 @@ EOF
 
 BUILD_DATE="$(date +%Y%m%d)"
 BUILD_TIMESTAMP="$(date +%s)"
-BUILD_BUILDER="$(whoami)@$(hostname)"
 
 ARCH="$(arch)"
 

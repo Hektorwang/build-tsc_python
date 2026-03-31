@@ -3,27 +3,39 @@ channels:
   - conda-forge
 dependencies:
   - _openmp_mutex
+  - backports.zstd
   - bcrypt
+  - brotli-python
   - bzip2
   - ca-certificates
+  - certifi
+  - cffi
+  - charset-normalizer
   - cryptography
   - cx_oracle
   - cyrus-sasl
+  - decorator
+  - h2
+  - hpack
+  - hyperframe
   - icu
+  - idna
+  - invoke
   - keyutils
   - krb5
+  # - ld_impl_linux-64
   - libedit
   - libexpat
   - libffi
-  - libgcc-ng
   - libgcc
+  - libgcc-ng
   - libgomp
   - liblzma
   - libnsl
   - libntlm
   - libpq
+  - libsodium
   - libsqlite
-  - libstdcxx-ng
   - libstdcxx
   - libuuid
   - libxcrypt
@@ -31,16 +43,28 @@ dependencies:
   - ncurses
   - openldap
   - openssl
+  - packaging
+  - paramiko
   - pip
   - psycopg2
+  - pycparser
+  - pymysql
+  - pynacl
+  - pyopenssl
+  - pysocks
+  - python=3.13.12
+  - python-gssapi
   - python_abi
-  - python=3.11.15
   - readline
-  # - rust
+  - requests
   - setuptools
+  - six
   - sqlite
   - tk
+  - typing-extensions
+  - typing_extensions
   - tzdata
-  - uv=0.10.11
+  - urllib3
+  - uv
   - wheel
-
+  - zstd
