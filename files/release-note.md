@@ -1,5 +1,17 @@
 # tsc_python
 
+## Version=0.10.0
+
+Date=20260507
+
+1. feat: 修改 ansible 查找 interpreter 的路径, 在原 `ansible/config/base.yml` 中的 `INTERPRETER_PYTHON_FALLBACK.default` 列表插入 `tsc_python` 和 `tsc_pyenv` 的 python3 路径
+
+## Version=0.9.7
+
+Date=20260331
+
+1. feat: 因为 ansible==2.9.27 已经无法在 python==3.13.12下工作, 改为使用 ansible-core
+
 ## Version=0.9.6
 
 Date=20260330

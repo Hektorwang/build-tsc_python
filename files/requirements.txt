@@ -65,8 +65,8 @@
 # xlrd
 # xlsxwriter
 # zabbix-utils[async]
-ansible-runner
-ansible==2.9.27
+# ansible-runner
+ansible-core
 pexpect
 psutil
 pyinotify

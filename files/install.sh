@@ -53,8 +53,14 @@ Usage:
     source /home/tsc/tsc_python_profile
     # or
     # activate full tsc environment
-    source /home/tsc/tsc_profile to
+    source /home/tsc/tsc_profile
 ################################################################################"
+}
+
+_patch_ansible() {
+	# add more python3 interpreter path to ansible default interpreter fallback path list
+	source /home/tsc/tsc_python_profile
+	python3 "${WORK_DIR}"/patch_ansible.py
 }
 
 check_env
