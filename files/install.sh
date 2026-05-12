@@ -45,6 +45,8 @@ _install() {
     if [[ -f /home/tsc/tsc_profile ]]; then
         sed -i '/tsc_python_profile/d' /home/tsc/tsc_profile
     fi
+    source /home/tsc/tsc_python_profile
+    _patch_ansible
     LOGSUCCESS "${FUNCNAME[0]}"
     echo 'source /home/tsc/tsc_python_profile' >>/home/tsc/tsc_profile
     echo "################################################################################

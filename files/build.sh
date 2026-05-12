@@ -45,6 +45,7 @@ EOF
         "${WORK_DIR}"/func \
         "${WORK_DIR}"/tsc_python_profile \
         "${WORK_DIR}"/install.sh \
+        "${WORK_DIR}"/patch_ansible.py \
         "${WORK_DIR}"/.profile \
         "${WORK_DIR}"/ansible \
         "${WORK_DIR}"/modules \
@@ -64,7 +65,6 @@ EOF
     
     # 创建 makeself 自解压安装包
     "${WORK_DIR}"/makeself.sh --needroot --tar-quietly \
-        --help-header README.md \
         "${OUTPUT_NAME}" "${OUTPUT_FILE}" \
         "TSC PYTHON ${version}" \
         ./install.sh
