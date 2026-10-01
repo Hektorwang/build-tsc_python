@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC1090,SC1091,SC2154
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Hek <hektorwang@gmail.com>
 set -o errexit
 set -o nounset
 set -o pipefail
@@ -15,15 +17,12 @@ DST_DIR=/home/tsc/tsc_tools/micromamba
 check_env() {
     LOGINFO "${FUNCNAME[0]}"
     system_info="$(detect_system_info)"
-    if echo "${system_info}" |
-        grep -q "${build_arch}"; then
-        if echo "${system_info}" |
-            grep -q "${build_os_distribution_file_variety}"; then
-            LOGSUCCESS "${FUNCNAME[0]}"
-            return 0
-        fi
+    target_arch="$(echo "${system_info}" | jq -r '.machine_architecture')"
+    if [[ "${target_arch}" == "${build_arch}" ]]; then
+        LOGSUCCESS "${FUNCNAME[0]}"
+        return 0
     fi
-    LOGERROR "${FUNCNAME[0]}: Unsupported OS distribution"
+    LOGERROR "${FUNCNAME[0]}: 架构不匹配 (安装包: ${build_arch}, 目标机: ${target_arch})"
     exit 1
 }
 
@@ -33,11 +32,13 @@ _install() {
     backup_dir_with_rotation "${DST_DIR}"
     mkdir -p /home/tsc/tsc_tools
     LOGINFO "Installation in progress, This will take about 1-5 minutes."
-    mkdir -p /home/tsc/tsc_tools/
     tar xzf "${WORK_DIR}"/micromamba.tar.gz -C /home/tsc/tsc_tools/
     \cp "${WORK_DIR}"/release-note.md \
         "${WORK_DIR}"/readme.md \
         "${WORK_DIR}"/install.sh \
+        "${WORK_DIR}"/smoke_test.sh \
+        "${WORK_DIR}"/THIRD_PARTY_NOTICES.md \
+        "${WORK_DIR}"/THIRD_PARTY_NOTICES.zh_CN.md \
         "${DST_DIR}"/
     mkdir -p /home/tsc/tsc_tools/modules/
     \cp -r "${WORK_DIR}"/ansible /home/tsc/tsc_tools/
@@ -62,7 +63,9 @@ Usage:
 _patch_ansible() {
 	# add more python3 interpreter path to ansible default interpreter fallback path list
 	source /home/tsc/tsc_python_profile
-	python3 "${WORK_DIR}"/patch_ansible.py
+	# 补丁失败不阻断安装, 仅告警 (ansible 改动 base.yml 结构时可能失败)
+	python3 "${WORK_DIR}"/patch_ansible.py ||
+		LOGWARNING "_patch_ansible: 解释器补丁失败, ansible 可能无法自动发现 tsc_python, 不影响安装完成"
 }
 
 check_env

@@ -69,6 +69,7 @@
 ansible-core
 pexpect
 psutil
-pyinotify
+watchdog
 yq
 fastmcp
+asyncssh

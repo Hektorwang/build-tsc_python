@@ -1,79 +1,126 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # shellcheck disable=SC1090,SC1091,SC2034,SC2046,SC2086,SC2116,SC2154
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Hek <hektorwang@gmail.com>
 
-export LANG=en_US.UTF-8 &>/dev/null || true
+export LANG=en_US.UTF-8
 export LC_CTYPE=en_US.UTF-8 &>/dev/null || true
-export NLS_LANG=american_america.AL32UTF8 &>/dev/null || true
+export 'NLS_LANG=american_america.AL32UTF8'
 
-readonly SETCOLOR_DEBUG="echo -en \\033[1;37m"
-readonly SETCOLOR_NORMAL="echo -en \\033[0;39m"
-readonly SETCOLOR_SUCCESS="echo -en \\033[1;32m"
-readonly SETCOLOR_ERROR="echo -en \\033[1;31m"
-readonly SETCOLOR_WARNING="echo -en \\033[1;33m"
+script_name="$(basename "$0" 2>/dev/null)"
 
-script_name=$(basename "$0" 2>/dev/null)
-readonly script_name
-export TSC_FUNC=1
+export TSC_FUNC=true
+
 ##################################################
 # 向标准 (错误) 输出和指定文件中写入日志
-# 所有日志函数返回值都是0, 执行日志函数的结果必为成功. 但是打印到屏幕是分为stdout和stderr的
-# 全局变量:
-#   log_file
+# 所有日志函数返回值都是0, 执行日志函数的结果必为成功
 # 参数:
 #   日志内容
+# 全局变量:
+#   log_file (可选，默认 /dev/null)
 # 输出:
-#   封装后的日志信息
+#   彩色输出到 stdout/stderr，纯文本写入日志
 ##################################################
-function __log() {
+__log() {
     local level="$1"
-    shift
-    local timestamp line message color_func out_fd
+    shift || true
+    local timestamp line message color_start color_end out_fd
     timestamp=$(date "+%F %T")
     line="${BASH_LINENO[1]:-0}"
     message="$*"
+
+    color_end=$'\033[0m'
     case "$level" in
     DEBUG)
-        ${SETCOLOR_DEBUG}
-        out_fd="2"
+        color_start=$'\033[1;37m'
+        out_fd=2
         ;;
     INFO)
-        ${SETCOLOR_NORMAL}
-        out_fd="1"
+        color_start=$'\033[0;39m'
+        out_fd=1
         ;;
     SUCCESS)
-        ${SETCOLOR_SUCCESS}
-        out_fd="1"
+        color_start=$'\033[1;32m'
+        out_fd=1
         ;;
     WARNING)
-        ${SETCOLOR_WARNING}
-        out_fd="2"
+        color_start=$'\033[1;33m'
+        out_fd=2
         ;;
     ERROR)
-        ${SETCOLOR_ERROR}
-        out_fd="2"
+        color_start=$'\033[1;31m'
+        out_fd=2
         ;;
     *)
-        ${SETCOLOR_NORMAL}
-        out_fd="1"
+        color_start=$'\033[0;39m'
+        out_fd=1
         ;;
     esac
-    {
-        printf "%-23s | %-8s | %s:%s - %s\n" \
-            "${timestamp}" "${level}" "${script_name}" "${line}" "${message}"
-        ${SETCOLOR_NORMAL}
-    } | tee -a "${log_file:-/dev/null}" >&"${out_fd}"
+
+    # 彩色输出到终端, 纯文本追加写入日志 (两路各自输出, 日志文件不含转义符)
+    local plain
+    plain="$(printf '%-23s | %-8s | %s:%s - %s\n' \
+        "${timestamp}" "${level}" "${script_name}" "${line}" "${message}")"
+    printf '%s' "${plain}" >>"${log_file:-/dev/null}"
+    printf '%s%s%s' "${color_start}" "${plain}" "${color_end}" >&"${out_fd}"
+
     return 0
 }
 
-function LOGDEBUG { __log "DEBUG" "$@"; }
-function LOGINFO { __log "INFO" "$@"; }
-function LOGSUCCESS { __log "SUCCESS" "$@"; }
-function LOGWARNING { __log "WARNING" "$@"; }
-function LOGERROR { __log "ERROR" "$@"; }
+# 定义便捷封装函数
+LOGDEBUG() { __log "DEBUG" "$@"; }
+LOGINFO() { __log "INFO" "$@"; }
+LOGSUCCESS() { __log "SUCCESS" "$@"; }
+LOGWARNING() { __log "WARNING" "$@"; }
+LOGERROR() { __log "ERROR" "$@"; }
+
 export -f LOGDEBUG LOGINFO LOGSUCCESS LOGWARNING LOGERROR
 
 #######################################
-# 删除前导和末尾的空格、制表符、换行符、回车符、全角空格
+# 删除前导和末尾的空白字符 (纯 bash 实现, str_strip 的退化/快速路径)
+# 覆盖: 空格、制表符、换行符、回车符、换页符、垂直制表符、
+#       不间断空格 (U+00A0)、全角空格 (U+3000)
+# 说明: NBSP/全角空格用 UTF-8 字节序列匹配, 不依赖 locale, 无子进程.
+#       热循环中建议直接调用本函数, 跳过 str_strip 的探测与 perl 启动开销.
+#       不要用 ${var:偏移} 截断, 其偏移在 UTF-8 locale 按字符
+#       计数、在 C locale 按字节计数, 行为不一致.
+# Globals:
+# Arguments:
+#   $1 需要strip的字符串
+# Outputs:
+#   $1经过strip的值
+# Returns:
+#   None
+#######################################
+function str_strip_alternative {
+    local str="${1:-}"
+    local ws=$' \t\n\r\f\v'
+    local nbsp=$'\xC2\xA0'      # U+00A0 的 UTF-8 编码
+    local ispace=$'\xE3\x80\x80' # U+3000 的 UTF-8 编码
+    while :; do
+        case $str in
+            ["${ws}"]*)   str=${str#["${ws}"]} ;;
+            "${nbsp}"*)   str=${str#"${nbsp}"} ;;
+            "${ispace}"*) str=${str#"${ispace}"} ;;
+            *) break ;;
+        esac
+    done
+    while :; do
+        case $str in
+            *["${ws}"])   str=${str%["${ws}"]} ;;
+            *"${nbsp}")  str=${str%"${nbsp}"} ;;
+            *"${ispace}") str=${str%"${ispace}"} ;;
+            *) break ;;
+        esac
+    done
+    printf '%s' "${str}"
+}
+export -f str_strip_alternative
+
+#######################################
+# 删除前导和末尾的空白字符 (整串语义, 同 python 的 str.strip())
+# 优先使用 perl, 覆盖全部 Unicode 空白字符 (含 U+2000-200A/U+202F/U+205F 等);
+# perl 不存在时退化为 str_strip_alternative (ASCII 空白 + NBSP + 全角空格).
 # Globals:
 # Arguments:
 #   $1 需要strip的字符串
@@ -83,8 +130,12 @@ export -f LOGDEBUG LOGINFO LOGSUCCESS LOGWARNING LOGERROR
 #   None
 #######################################
 function str_strip {
-    local str="$1"
-    echo -n "$str" | sed -E 's/^[[:space:]\xC2\xA0\u3000]+|[[:space:]\xC2\xA0\u3000]+$//g'
+    local str="${1:-}"
+    if command -v perl &>/dev/null; then
+        printf '%s' "${str}" | perl -0777 -CSD -pe 's/^\s+|\s+$//g'
+    else
+        str_strip_alternative "${str}"
+    fi
 }
 export -f str_strip
 
@@ -178,21 +229,21 @@ export -f get_var
 # Returns:
 #   true/false
 #######################################
-function version_gt() {
+version_gt() {
     local v1="$1" v2="$2"
     [[ "$(printf '%s\n' "${v1}" "${v2}" | sort -V | head -n1)" != "${v1}" ]]
 }
-function version_lt() {
+version_lt() {
     local v1="$1" v2="$2"
     [[ "$(printf '%s\n' "${v1}" "${v2}" | sort -rV | head -n1)" != "${v1}" ]]
 }
-function version_eq() {
+version_eq() {
     [[ "$1" == "$2" ]]
 }
-function version_ge() {
+version_ge() {
     version_gt "$1" "$2" || version_eq "$1" "$2"
 }
-function version_le() {
+version_le() {
     version_lt "$1" "$2" || version_eq "$1" "$2"
 }
 export -f version_gt version_lt version_eq version_ge version_le
@@ -204,7 +255,7 @@ export -f version_gt version_lt version_eq version_ge version_le
 # 参数:
 #   "$@" (脚本级别位置变量 $@)
 ##################################################
-function debug {
+debug() {
     if [[ "$(eval echo "\${$#}")" != "debug" ]]; then
         DEBUG=false
         return 0
@@ -223,7 +274,7 @@ export -f debug
 # 输出:
 #   脚本中止的提示信息
 ##################################################
-function gracefully_abort {
+gracefully_abort() {
     echo -en "\033[1;0m"
     LOGWARNING "用户中止执行，脚本退出"
     exit 1
@@ -299,7 +350,8 @@ function _conv2sec {
     # 使用正则提取数字和单位（兼容小数）
     if [[ "$input" =~ ^([0-9]+(\.[0-9]+)?)([smhdSMHD]?)$ ]]; then
         number="${BASH_REMATCH[1]}"
-        unit=$(echo "$unit" | tr '[:upper:]' '[:lower:]')
+        unit="${BASH_REMATCH[3]}" # 原先漏取此捕获组, 单位恒为空, 1m/1h/1d 均按秒处理
+        unit="${unit,,}"          # 单位统一转小写 (SMHD → smhd)
         case "$unit" in
         "") result="$number" ;; # 默认为秒
         "s") result="$number" ;;
@@ -604,7 +656,7 @@ function detect_system_info() {
             os_distribution_release: $os_distribution_release,
             os_service_mgr: $os_service_mgr,
             machine_type: $machine_type,
-                        product_name: $product_name
+            product_name: $product_name
         }'
 }
 export -f detect_system_info
@@ -648,7 +700,8 @@ backup_dir_with_rotation() {
         LOGERROR "Backup: '${target_dir}' -> '${new_backup}'"
         return 2
     fi
-    local timestamp_pattern='[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'
+    # %Y%m%d%H%M%S = 14 位, pattern 必须同为 14 位, 否则 find 永远匹配不到旧备份, 轮换清理失效
+    local timestamp_pattern='[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'
     # mapfile -d '' old_backups < <(
     #     find "${backup_root}" -maxdepth 1 -type d \
     #         -name "${base}.bak.${timestamp_pattern}" \
@@ -676,3 +729,107 @@ backup_dir_with_rotation() {
     fi
 }
 export -f backup_dir_with_rotation
+
+##################################################
+# 检查给定元素是否存在于给定数组中
+# 参数:
+#   $1 - element_to_check (要检查的元素)
+#   $2...$# - array_elements (数组的所有元素，作为单独的参数传递)
+# 示例:
+#   is_element_in_array "apple" "${fruits[@]}"
+# 返回:
+#   0 - 元素在列表中
+#   1 - 元素不在列表中
+##################################################
+is_element_in_array() {
+    local element_to_check="$1"
+    shift # 移除第一个参数，现在 "$@" 包含了数组的所有元素
+
+    local item
+    for item in "$@"; do # 遍历所有剩余的位置参数
+        if [[ "$element_to_check" == "$item" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+export -f is_element_in_array
+
+#######################################
+# 将关联数组的键和值转换为 JSON 对象
+# 通过参数顺序依次接收 keys 和 values（键值对）
+# 使用 jq 生成 JSON 字符串。
+#
+# Globals:
+#   None
+# Arguments:
+#   $@ 依次为关联数组的键和值，
+#       调用方式如：
+#         associate_array_to_json "${!assoc[@]}" "${assoc[@]}"
+# Outputs:
+#   输出 JSON 对象字符串到标准输出，例如：
+#       {"key1":"value1","key2":"value2"}
+# Returns:
+#   None
+#######################################
+associate_array_to_json() {
+    # 用法：associate_array_to_json <assoc_array_name>
+    # 例如：associate_array_to_json vd_info
+    local arr_name="$1"
+    local sep=$'\u0019'
+    local out="" key val
+
+    # 获取 keys（按 keys 顺序取值）
+    set -f
+    eval "keys=(\"\${!${arr_name}[@]}\")" 2>/dev/null || keys=()
+    set +f
+    if ((${#keys[@]} == 0)); then
+        printf '%s\n' '{}'
+        return
+    fi
+
+    for key in "${keys[@]}"; do
+        # 按 key 顺序安全读取 value（若未定义则为空）
+        set -f
+        eval "val=\${${arr_name}[\"\$key\"]-}" 2>/dev/null || val=""
+        set +f
+        out+="${key}${sep}${val}${sep}"
+    done
+
+    # 用 jq 将 NUL 分隔流转换为紧凑 JSON 输出
+    printf '%s' "$out" | jq -R -s --arg sep "$sep" -c '
+        (split($sep)[:-1]) as $a |
+        [range(0; ($a|length); 2) | { ($a[.]) : $a[. + 1] }] |
+        add
+    '
+}
+export -f associate_array_to_json
+
+#######################################
+# 将普通数组转换为 JSON 数组
+# 使用 jq 生成 JSON 数组字符串。
+#
+# Globals:
+#   None
+# Arguments:
+#   $@ 普通数组的所有元素，
+#       调用方式如：
+#         array_to_json "${array[@]}"
+# Outputs:
+#   输出 JSON 数组字符串到标准输出，例如：
+#       ["value1","value2","value3"]
+# Returns:
+#   None
+#######################################
+array_to_json() {
+    local sep=$'\u0019'
+    {
+        for v in "$@"; do
+            printf '%s%s' "$v" "$sep"
+        done
+    } |
+        jq -Rrcs --arg sep "$sep" '
+            (split($sep)[:-1]) as $a | $a
+        '
+}
+export -f array_to_json

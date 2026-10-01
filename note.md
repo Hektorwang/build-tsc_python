@@ -1,5 +1,7 @@
 # note
 
+> **注意**: 本文档记录的 `docker buildx` 交叉编译方案已于 0.11.0 废弃（`Euler.dockerfile` 已移除, 统一使用 `build.sh` + CentOS 7.9 基线容器本地构建）, 仅作历史参考.
+
 ## 交叉编译
 
 Docker + QEMU 模拟 + Buildx

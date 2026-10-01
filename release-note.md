@@ -1,5 +1,22 @@
 # tsc_python
 
+## Version=0.11.0
+
+Date=20261001
+
+1. feat: 包命名去除发行版标识, 改为 `tsc_python-<version>-<arch>-<date>.sh`; 环境统一在 CentOS 7.9 (glibc 2.17 基线) 容器中构建, 单架构单包兼容 glibc >= 2.17 的 Linux 发行版
+2. feat: `build.sh` 增加 glibc 符号扫描门限检查, 环境内 ELF 的最高 GLIBC_ 要求超过 2.17 时禁止出包; 元数据 JSON 的 `os_variant` 字段替换为 `glibc_baseline`
+3. fix(install.sh): `check_env` 由校验发行版家族改为仅校验目标机架构
+4. chore: 依赖移除 `pyinotify` (0.9.6 依赖 py3.12 已移除的 asyncore, 无法 import), 增加 `watchdog`
+5. chore: `Euler.dockerfile` 退役, 构建容器统一为 `Dockerfile` (centos:7.9); `build.sh` 移除 `-t/--target` 参数, 收敛为单架构单构建
+6. chore: jq 改用静态二进制 (1.8.1, 双架构), 构建不再依赖 EPEL, `epel-local` 源移除
+7. chore: conda-forge 与 PyPI 源统一切换到教育网联合镜像站 (`mirrors.cernet.edu.cn`); 新增 `THIRD_PARTY_NOTICES.md` 随包分发第三方组件声明
+8. feat: 构建源全部可配置: `build.conf` 新增 `pypi_index`/`conda_forge` 键, `build.sh` 新增 `--pypi-index`/`--conda-forge` 参数; `files/pip.conf` 与 `files/.condarc` 移除, 改为构建时生成到 `files/tmp/`
+9. feat: `makeself` 与 `jq` 改为与 micromamba 相同的缓存优先按需下载模式 (jq 带 sha256 校验), 第三方组件不再随仓库分发, 移除无引用的 `argbash` 存档
+10. chore: 开源准备: 新增 GPL-3.0 `LICENSE` 与源码文件 SPDX 标识; 内网地址移出版本控制 (`build.conf` 移出跟踪并提供 `build.conf.example`); `THIRD_PARTY_NOTICES` 拆分为中英文文件 (`THIRD_PARTY_NOTICES.md` / `THIRD_PARTY_NOTICES.zh_CN.md`), README 提供中英文版本 (`README.md` / `README.zh_CN.md`)
+11. chore: `release-note.md` 与 `THIRD_PARTY_NOTICES*.md` 移至仓库根目录并随产物分发; `RedHat.dockerfile` 更名为 `Dockerfile`; `build-local.sh` 更名为 `build.sh`, 容器内 `files/build.sh` 更名为 `files/pack.sh`
+12. docs: README 新增依赖管理与 pip-compile 锁定流程说明 (`--no-header --no-annotate`, 锁文件保持源无关); `requirements.txt` 头部注释移除 (生成物不保留流程注释), 声明层注释保留在 `requirements.in`
+
 ## Version=0.10.0
 
 Date=20260507

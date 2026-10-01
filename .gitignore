@@ -4,4 +4,7 @@
 /.buildx-cache
 /log
 /.mypy_cache
+/build.conf
+/files/makeself.sh
+/files/makeself-header.sh
 !.gitignore

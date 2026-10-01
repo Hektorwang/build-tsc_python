@@ -1,0 +1,11 @@
+[build]
+# micromamba 版本 (https://micro.mamba.pm/api/micromamba/<tag>/<version>)
+micromamba_ver=2.5.0
+# EL7 yum 源地址 (vault 存档 ISO 自建, 必填, 见 README "CentOS 7 yum 源")
+repo_local=http://your-internal-repo/centos7
+# 目标 Python 版本
+python_version=3.13.12
+# PyPI 索引地址 (自建源示例: http://your-internal-repo/pypi/simple)
+pypi_index=https://mirrors.cernet.edu.cn/pypi/web/simple
+# conda-forge 通道地址 (自建最小源示例: http://your-internal-repo/conda-forge)
+conda_forge=https://mirrors.cernet.edu.cn/anaconda/cloud/conda-forge

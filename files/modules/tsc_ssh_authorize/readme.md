@@ -19,7 +19,7 @@ source /home/tsc/tsc_profile
 # 批量创建信任
 ansible-playbook -i /home/tsc/tsc_tools/ansible/hosts /home/tsc/tsc_tools/ansible/roles/ssh_authorize_create.yml
 # 检查信任
-ansible-playbook -i /home/tsc/tsc_tools/ansible/hosts /home/tsc/tsc_tools/ansible/roles/sh_authorize_check.yml
+ansible-playbook -i /home/tsc/tsc_tools/ansible/hosts /home/tsc/tsc_tools/ansible/roles/ssh_authorize_check.yml
 # 删除信任
 ansible-playbook -i /home/tsc/tsc_tools/ansible/hosts /home/tsc/tsc_tools/ansible/roles/ssh_authorize_delete.yml
 ```

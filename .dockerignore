@@ -1,0 +1,14 @@
+# 构建上下文只需要 Dockerfile 和 files/
+# 注意: files/tmp/ 必须保留在上下文中 (micromamba/jq 缓存与生成的 environment.yml/condarc/pip.conf 会被 COPY)
+.git
+.vscode
+log
+output
+lib
+func
+note.md
+README.md
+README.zh_CN.md
+build-local.sh
+build.conf
+build.conf.example

@@ -1,4 +1,7 @@
-# ansible
+# requirements.in — 依赖声明层 (人工维护)
+# 记录实际要用的顶层模块; 构建不直接使用本文件 (构建按 requirements.txt 安装).
+# 锁版本阶段: 本文件作为 pip-compile 的输入, 生成锁定的 requirements.txt.
+# 注意: 修改本文件后需同步更新 requirements.txt, 否则变更不会生效.
 # ansible-runner
 # beautifulsoup4
 # black
@@ -58,14 +61,14 @@
 # tqdm
 # urllib3
 # uvicorn
-# watchdog
 # xlrd
 # xlsxwriter
 # zabbix-utils[async]
-ansible==2.9.27
+# 已废弃: ansible==2.9.27 无法在 python 3.13 下工作, 改用 ansible-core
+ansible-core
 pexpect
 psutil
-pyinotify
+watchdog
 yq
 fastmcp
 asyncssh
