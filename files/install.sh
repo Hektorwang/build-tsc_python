@@ -43,6 +43,12 @@ _install() {
     mkdir -p /home/tsc/tsc_tools/modules/
     \cp -r "${WORK_DIR}"/ansible /home/tsc/tsc_tools/
     \cp -r "${WORK_DIR}"/modules/* /home/tsc/tsc_tools/modules/
+    # 创建 ansible 日志目录 (ansible.cfg: log_path=/var/log/tsc/ansible.log)
+    mkdir -p /var/log/tsc
+    chmod 0755 /var/log/tsc
+    if id tsc &>/dev/null; then
+        chown tsc: /var/log/tsc || LOGWARNING "chown tsc /var/log/tsc 失败, 以 tsc 用户运行 ansible 时日志可能不可写"
+    fi
     if [[ -f /home/tsc/tsc_profile ]]; then
         sed -i '/tsc_python_profile/d' /home/tsc/tsc_profile
     fi
