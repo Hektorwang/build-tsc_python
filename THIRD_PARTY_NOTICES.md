@@ -41,6 +41,14 @@ Main copyleft component:
 
 The rest are mainly MIT / BSD / Apache-2.0 / ISC.
 
+### Shell function library
+
+| Component | Version | License | Source |
+| --- | --- | --- | --- |
+| bash_common_func (`func`) | v1.1.0 | MIT | https://github.com/Hektorwang/bash_common_func |
+
+Distributed as `files/func` inside the installer; the MIT copyright and license notice are retained in the file header.
+
 ---
 
 ## 2. Related to the build tool repository

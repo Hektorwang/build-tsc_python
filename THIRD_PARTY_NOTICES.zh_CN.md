@@ -41,6 +41,14 @@ pip 装包的许可证以各自 `*.dist-info/METADATA` 的 `License` 字段与�
 
 其余以 MIT / BSD / Apache-2.0 / ISC 为主.
 
+### Shell 函数库
+
+| 组件 | 版本 | 许可证 | 来源 |
+| --- | --- | --- | --- |
+| bash_common_func (`func`) | v1.1.0 | MIT | https://github.com/Hektorwang/bash_common_func |
+
+以 `files/func` 形式随安装包分发, 文件头保留 MIT 版权与许可声明.
+
 ---
 
 ## 二、构建工具仓库涉及
