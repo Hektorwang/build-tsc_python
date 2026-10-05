@@ -73,3 +73,4 @@ watchdog
 yq
 fastmcp
 asyncssh
+passlib

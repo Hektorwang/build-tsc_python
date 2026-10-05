@@ -43,7 +43,7 @@
 # pandas-stubs
 # pandas==2.2.3
 # paramiko
-# passlib
+passlib
 # pillow
 # pip2pi
 # pydantic

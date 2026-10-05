@@ -1,0 +1,30 @@
+---
+- name: Create root keypair and business user on localhost
+  hosts: localhost
+  gather_facts: true
+  pre_tasks:
+    - name: Assert required variables
+      ansible.builtin.assert:
+        that:
+          - new_user is defined
+          - new_user_psw is defined
+        fail_msg: "请在 inventory (/home/tsc/tsc_tools/ansible/hosts) 的 [all:vars] 段配置 new_user 与 new_user_psw"
+        quiet: true
+      tags: [always]
+  roles:
+    - role: batch_user_manager_create_localhost
+
+- name: Create business user, sudo and dispatch pubkey to hosts
+  hosts: hosts,!localhost
+  gather_facts: true
+  pre_tasks:
+    - name: Assert required variables
+      ansible.builtin.assert:
+        that:
+          - new_user is defined
+          - new_user_psw is defined
+        fail_msg: "请在 inventory (/home/tsc/tsc_tools/ansible/hosts) 的 [all:vars] 段配置 new_user 与 new_user_psw"
+        quiet: true
+      tags: [always]
+  roles:
+    - role: batch_user_manager_create_remote

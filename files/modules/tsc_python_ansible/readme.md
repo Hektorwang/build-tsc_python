@@ -1,3 +1,16 @@
+---
+category: 批量管理
+keywords:
+  - ansible
+  - 批量管理
+  - 远程执行
+  - inventory
+  - 文件分发
+  - 命令速查
+description: 基于 ansible 的批量远程管理使用说明与命令速查, 含 inventory 配置、批量执行命令、批量拷贝文件示例
+usage: tsc --tsc_python_ansible
+---
+
 # Ansible 批量管理简介
 
 ## Ansible inventory 配置样例

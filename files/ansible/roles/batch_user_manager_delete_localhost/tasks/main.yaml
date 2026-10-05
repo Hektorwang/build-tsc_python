@@ -1,0 +1,14 @@
+---
+- name: Remove sudoers file on localhost
+  ansible.builtin.file:
+    path: "/etc/sudoers.d/{{ new_user }}"
+    state: absent
+  tags: [user]
+
+- name: Remove business user on localhost
+  ansible.builtin.user:
+    name: "{{ new_user }}"
+    state: absent
+    remove: true
+    force: true
+  tags: [user]

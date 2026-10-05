@@ -1,0 +1,78 @@
+---
+- name: Dispatch root pubkey to host authorized_keys
+  ansible.posix.authorized_key:
+    user: root
+    key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+  tags: [root]
+
+- name: Fix SELinux context of root .ssh dir (enabled SELinux only)
+  ansible.builtin.file:
+    path: /root/.ssh
+    state: directory
+    mode: "0700"
+    setype: ssh_home_t
+  when: ansible_selinux.status is defined and ansible_selinux.status == 'enabled'
+  tags: [root]
+
+- name: Ensure sudo package present (offline machines may fail, asserted later)
+  ansible.builtin.package:
+    name: sudo
+    state: present
+  failed_when: false
+  tags: [user]
+
+- name: Collect installed packages
+  ansible.builtin.package_facts:
+  tags: [user]
+
+- name: Assert sudo is installed
+  ansible.builtin.assert:
+    that: "'sudo' in ansible_facts.packages"
+    fail_msg: "目标机未安装 sudo 且自动安装失败, 请手动安装 sudo 后重试"
+    quiet: true
+  tags: [user]
+
+- name: Create business user on host
+  ansible.builtin.user:
+    name: "{{ new_user }}"
+    password: "{{ new_user_psw | password_hash('sha512') }}"
+    state: present
+    shell: /bin/bash
+    create_home: true
+    home: "/home/{{ new_user }}"
+    move_home: true
+    update_password: always
+  tags: [user]
+
+- name: Grant passwordless sudo on host
+  ansible.builtin.template:
+    src: new_user_sudoers.j2
+    dest: "/etc/sudoers.d/{{ new_user }}"
+    mode: "0440"
+    force: true
+    validate: "visudo -cf %s"
+  tags: [user]
+
+- name: Create business user .ssh dir on host
+  ansible.builtin.file:
+    path: "/home/{{ new_user }}/.ssh"
+    state: directory
+    mode: "0700"
+    owner: "{{ new_user }}"
+    group: "{{ new_user }}"
+  tags: [user]
+
+- name: Fix SELinux context of business user .ssh dir (enabled SELinux only)
+  ansible.builtin.file:
+    path: "/home/{{ new_user }}/.ssh"
+    state: directory
+    mode: "0700"
+    setype: ssh_home_t
+  when: ansible_selinux.status is defined and ansible_selinux.status == 'enabled'
+  tags: [user]
+
+- name: Dispatch business user pubkey to host authorized_keys
+  ansible.posix.authorized_key:
+    user: "{{ new_user }}"
+    key: "{{ lookup('file', '/home/' ~ new_user ~ '/.ssh/id_rsa.pub') }}"
+  tags: [user]

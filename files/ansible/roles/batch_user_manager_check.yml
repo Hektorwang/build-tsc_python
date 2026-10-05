@@ -1,0 +1,87 @@
+---
+- name: Check business user and keypair on localhost
+  hosts: localhost
+  gather_facts: false
+  tags: [user]
+  pre_tasks:
+    - name: Assert required variables
+      ansible.builtin.assert:
+        that:
+          - new_user is defined
+        fail_msg: "请在 inventory (/home/tsc/tsc_tools/ansible/hosts) 的 [all:vars] 段配置 new_user"
+        quiet: true
+  tasks:
+    - name: Check business user exists on localhost
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ new_user }}"
+
+    - name: Check business user private key exists on localhost
+      ansible.builtin.stat:
+        path: "/home/{{ new_user }}/.ssh/id_rsa"
+      register: localhost_user_private_key
+
+    - name: Assert business user private key exists
+      ansible.builtin.assert:
+        that: localhost_user_private_key.stat.exists
+        fail_msg: "/home/{{ new_user }}/.ssh/id_rsa 不存在, 请先执行 batch_user_manager_create.yml"
+        quiet: true
+
+- name: Check root ssh trust from localhost to hosts
+  hosts: hosts,!localhost
+  gather_facts: false
+  tags: [root]
+  vars:
+    # BatchMode 强制仅密钥认证; ControlMaster=no 禁止复用建立信任时留下的密码认证连接
+    ansible_ssh_common_args: "-o BatchMode=yes -o ControlMaster=no"
+  tasks:
+    - name: Identify remote user via key-only connection
+      ansible.builtin.setup:
+        filter: ansible_user_id
+      register: root_trust_check
+
+    - name: Assert connected as root via ssh trust
+      ansible.builtin.assert:
+        that: root_trust_check.ansible_facts.ansible_user_id == 'root'
+        fail_msg: "root 信任校验失败: 无法仅凭密钥以 root 连接, 请先执行 batch_user_manager_create.yml"
+        quiet: true
+
+- name: Check business user ssh trust and passwordless sudo on hosts
+  hosts: hosts,!localhost
+  gather_facts: false
+  tags: [user]
+  vars:
+    # BatchMode 强制仅密钥认证; ControlMaster=no 禁止复用建立信任时留下的密码认证连接
+    ansible_ssh_common_args: "-o BatchMode=yes -o ControlMaster=no"
+    ansible_user: "{{ new_user }}"
+    ansible_ssh_private_key_file: "/home/{{ new_user }}/.ssh/id_rsa"
+  pre_tasks:
+    - name: Assert required variables
+      ansible.builtin.assert:
+        that:
+          - new_user is defined
+        fail_msg: "请在 inventory (/home/tsc/tsc_tools/ansible/hosts) 的 [all:vars] 段配置 new_user"
+        quiet: true
+  tasks:
+    - name: Identify remote user via key-only connection
+      ansible.builtin.setup:
+        filter: ansible_user_id
+      register: user_trust_check
+
+    - name: Assert connected as business user via ssh trust
+      ansible.builtin.assert:
+        that: user_trust_check.ansible_facts.ansible_user_id == new_user
+        fail_msg: "{{ new_user }} 信任校验失败: 无法仅凭密钥以 {{ new_user }} 连接, 请先执行 batch_user_manager_create.yml"
+        quiet: true
+
+    - name: Identify effective user via passwordless sudo
+      ansible.builtin.setup:
+        filter: ansible_user_id
+      become: true
+      register: sudo_check
+
+    - name: Assert passwordless sudo elevates to root
+      ansible.builtin.assert:
+        that: sudo_check.ansible_facts.ansible_user_id == 'root'
+        fail_msg: "{{ new_user }} 免密码 sudo 校验失败: sudo 提权异常, 请检查目标机 /etc/sudoers.d/{{ new_user }}"
+        quiet: true

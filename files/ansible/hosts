@@ -22,3 +22,7 @@ ansible_user=root
 ; 则无需在每个主机条目上配置, 只要在这里配置一次就行
 ; ansible_ssh_pass="该主机root用户密码"
 ; ansible_ssh_port="该主机ssh服务端口"
+
+# 以下两个变量仅 tsc_python_batch_user_manager 模块使用: 需新建的业务用户名和初始密码
+; new_user="product"
+; new_user_psw="该用户的初始密码"

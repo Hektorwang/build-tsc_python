@@ -1,5 +1,14 @@
 # tsc_python
 
+## Version=0.12.0
+
+Date=20261004
+
+1. feat: 新增 `tsc_python_batch_user_manager` 模块: 批量建立管理机到目标机的 root 信任; 批量创建业务用户并赋予免密码 sudo, 建立到业务用户的 ssh 信任; 按 `create`/`check`/`delete` 三个剧本组织, 以 `root`/`user` 标签选择执行范围; 全程原生 ansible 模块, 适配 RHEL 系与 DEBIAN 系 (sudo 缺失显式报错, SELinux enforcing 下自动修正 `.ssh` 上下文, 校验强制仅密钥连接防误判)
+2. fix(requirements): 新增 `passlib`: ansible `password_hash` 过滤器的控制器侧依赖, 缺失时创建用户的任务会直接失败
+3. feat(modules): 模块 readme 增加 front matter (category/keywords/description/usage), run.sh 补可执行位; `install.sh` 在合并 modules 后调用 tsc_tools (>= 2.1.7) 的 `gen_rag.sh` 重建 `rag.md`, 使 `tsc` 命令入口可查询并调用本包模块
+4. chore(modules): 确立模块命名规范 — tsc_tools 自有模块用 `tsc_` 前缀, tsc_python 插件模块统一 `tsc_python_` 前缀; tsc_tools 升级安装按此前缀识别并保护插件内容 (退役的 `tsc_ssh_authorize` 模块本轮不再随包分发)
+
 ## Version=0.11.0
 
 Date=20261001

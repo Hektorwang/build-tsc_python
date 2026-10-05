@@ -1,3 +1,14 @@
+---
+category: 主机配置
+keywords:
+  - 主机名
+  - hostname
+  - 批量修改
+  - hosts 文件
+description: 通过 ansible 批量修改目的主机的主机名, 并同步写入 /etc/hosts
+usage: tsc --tsc_python_changehostname
+---
+
 # 批量修改主机名功能
 
 ## 环境依赖

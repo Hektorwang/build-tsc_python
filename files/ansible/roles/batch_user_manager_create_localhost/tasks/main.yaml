@@ -1,0 +1,60 @@
+---
+- name: Create root openssh keypair on localhost (reuse if exists)
+  community.crypto.openssh_keypair:
+    type: rsa
+    state: present
+    mode: "0600"
+    path: "~/.ssh/id_rsa"
+  tags: [root]
+
+- name: Add root pubkey to localhost authorized_keys
+  ansible.posix.authorized_key:
+    user: "{{ ansible_user_id }}"
+    key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+  tags: [root]
+
+- name: Create business user on localhost
+  ansible.builtin.user:
+    name: "{{ new_user }}"
+    password: "{{ new_user_psw | password_hash('sha512') }}"
+    state: present
+    shell: /bin/bash
+    create_home: true
+    home: "/home/{{ new_user }}"
+    move_home: true
+    update_password: always
+  tags: [user]
+
+- name: Grant passwordless sudo on localhost
+  ansible.builtin.template:
+    src: new_user_sudoers.j2
+    dest: "/etc/sudoers.d/{{ new_user }}"
+    mode: "0440"
+    force: true
+    validate: "visudo -cf %s"
+  tags: [user]
+
+- name: Create business user .ssh dir on localhost
+  ansible.builtin.file:
+    path: "/home/{{ new_user }}/.ssh"
+    state: directory
+    mode: "0700"
+    owner: "{{ new_user }}"
+    group: "{{ new_user }}"
+  tags: [user]
+
+- name: Create business user openssh keypair on localhost (reuse if exists)
+  community.crypto.openssh_keypair:
+    type: rsa
+    state: present
+    mode: "0600"
+    owner: "{{ new_user }}"
+    group: "{{ new_user }}"
+    path: "/home/{{ new_user }}/.ssh/id_rsa"
+  tags: [user]
+
+- name: Add business user pubkey to localhost authorized_keys
+  ansible.posix.authorized_key:
+    user: "{{ new_user }}"
+    key: "{{ lookup('file', '/home/' ~ new_user ~ '/.ssh/id_rsa.pub') }}"
+  tags: [user]

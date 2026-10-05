@@ -1,0 +1,21 @@
+---
+- name: Remove root pubkey from host authorized_keys
+  ansible.posix.authorized_key:
+    user: root
+    key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+    state: absent
+  tags: [root]
+
+- name: Remove sudoers file on host
+  ansible.builtin.file:
+    path: "/etc/sudoers.d/{{ new_user }}"
+    state: absent
+  tags: [user]
+
+- name: Remove business user on host
+  ansible.builtin.user:
+    name: "{{ new_user }}"
+    state: absent
+    remove: true
+    force: true
+  tags: [user]

@@ -43,6 +43,14 @@ _install() {
     mkdir -p /home/tsc/tsc_tools/modules/
     \cp -r "${WORK_DIR}"/ansible /home/tsc/tsc_tools/
     \cp -r "${WORK_DIR}"/modules/* /home/tsc/tsc_tools/modules/
+    # 模块 run.sh 补可执行位 (防打包/拷贝过程丢失), 保证 tsc 入口可调用
+    chmod 0755 /home/tsc/tsc_tools/modules/*/run.sh
+    # 模块合并后重建 rag.md (生成器由 tsc_tools >= 2.1.7 随包提供), 使 tsc 命令帮助与 RAG 文档覆盖本包模块
+    if [[ -x /home/tsc/tsc_tools/gen_rag.sh ]]; then
+        /home/tsc/tsc_tools/gen_rag.sh || LOGWARNING "gen_rag.sh 执行失败, rag.md 未更新"
+    else
+        LOGWARNING "未找到 /home/tsc/tsc_tools/gen_rag.sh, 跳过 rag.md 更新 (需升级 tsc_tools)"
+    fi
     # 创建 ansible 日志目录 (ansible.cfg: log_path=/var/log/tsc/ansible.log)
     mkdir -p /var/log/tsc
     chmod 0755 /var/log/tsc

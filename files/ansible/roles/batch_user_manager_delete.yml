@@ -1,0 +1,57 @@
+---
+- name: Remove sudo and business user on localhost
+  hosts: localhost
+  gather_facts: false
+  tags: [user]
+  pre_tasks:
+    - name: Assert required variables
+      ansible.builtin.assert:
+        that:
+          - new_user is defined
+        fail_msg: "请在 inventory (/home/tsc/tsc_tools/ansible/hosts) 的 [all:vars] 段配置 new_user"
+        quiet: true
+  tasks:
+    - name: Remove sudoers file on localhost
+      ansible.builtin.file:
+        path: "/etc/sudoers.d/{{ new_user }}"
+        state: absent
+
+    - name: Remove business user on localhost
+      ansible.builtin.user:
+        name: "{{ new_user }}"
+        state: absent
+        remove: true
+        force: true
+
+- name: Remove root trust, sudo and business user on hosts
+  hosts: hosts,!localhost
+  gather_facts: false
+  pre_tasks:
+    - name: Assert required variables
+      ansible.builtin.assert:
+        that:
+          - new_user is defined
+        fail_msg: "请在 inventory (/home/tsc/tsc_tools/ansible/hosts) 的 [all:vars] 段配置 new_user"
+        quiet: true
+      tags: [always]
+  tasks:
+    - name: Remove root pubkey from host authorized_keys
+      ansible.posix.authorized_key:
+        user: root
+        key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+        state: absent
+      tags: [root]
+
+    - name: Remove sudoers file on host
+      ansible.builtin.file:
+        path: "/etc/sudoers.d/{{ new_user }}"
+        state: absent
+      tags: [user]
+
+    - name: Remove business user on host
+      ansible.builtin.user:
+        name: "{{ new_user }}"
+        state: absent
+        remove: true
+        force: true
+      tags: [user]
