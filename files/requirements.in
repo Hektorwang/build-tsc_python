@@ -25,6 +25,7 @@
 # drf-spectacular
 # drf-spectacular-sidecar
 # fastapi
+# fastmcp
 # ipython
 # isort
 # jieba
@@ -42,10 +43,7 @@
 # pandas
 # pandas-stubs
 # pandas==2.2.3
-# paramiko
-passlib
 # pillow
-# pip2pi
 # pydantic
 # pydantic-ai
 # pylint
@@ -66,9 +64,9 @@ passlib
 # zabbix-utils[async]
 # 已废弃: ansible==2.9.27 无法在 python 3.13 下工作, 改用 ansible-core
 ansible-core
+asyncssh
+passlib
 pexpect
 psutil
 watchdog
 yq
-fastmcp
-asyncssh
