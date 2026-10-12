@@ -47,7 +47,8 @@ The rest are mainly MIT / BSD / Apache-2.0 / ISC.
 | --- | --- | --- | --- |
 | bash_common_func (`func`) | v1.1.0 | MIT | https://github.com/Hektorwang/bash_common_func |
 
-Distributed as `files/func` inside the installer; the MIT copyright and license notice are retained in the file header.
+Used at build time and kept in the build repository as `files/func` (not shipped inside the
+installer); the MIT copyright and license notice are retained in the file header.
 
 ---
 

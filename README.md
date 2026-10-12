@@ -11,7 +11,8 @@ English | [简体中文](README.zh_CN.md)
 ## Installation
 
 The artifact is a single RPM: `tsc_python-<version>-<release>.<arch>.rpm`
-(`<version>` comes from `Version=` in `release-note.md`, `<release>` is the build date).
+(`<version>` comes from `Version=` in `release-note.md`, `<release>` is the build
+timestamp `YYYYMMDDHHMMSS`).
 
 ```bash
 # install
@@ -43,26 +44,29 @@ The environment is exposed through a profile **drop-in**, following the same spl
 | Path | Owner | Removed on uninstall |
 | --- | --- | --- |
 | `/home/tsc/tsc_profile` | common entry, created by whichever tool installs first; only sources `tsc_profile.d/*.sh` | no (shared infrastructure) |
-| `/home/tsc/tsc_profile.d/0-tsc_tools-profile` | tsc_tools | yes, by tsc_tools |
-| `/home/tsc/tsc_profile.d/01-tsc_python-profile.sh` (**this package**) | tsc_python | yes, by `%preun` (hash-verified: a fragment you edited is kept) |
+| `/home/tsc/tsc_profile.d/01-tsc_tools-profile.sh` | tsc_tools | yes, by tsc_tools |
+| `/home/tsc/tsc_profile.d/01-tsc_python-profile.sh` (**this package**) | tsc_python | yes, by `%preun` (owned solely by this package: refreshed on every install/upgrade, removed unconditionally on uninstall — local edits are not preserved; put custom fragments in a different file, e.g. `99-local-profile.sh`) |
 
-The numeric prefix fixes the load order (PATH/module dirs first, then the environment), which is
-also why the fragment declares `TSC_MODULES_DIR` itself — so `tsc` still finds the `tsc_python_*`
-modules when tsc_tools is absent. If `0-tsc_tools-profile` already declared that directory, this
-package skips its own declaration instead of duplicating the entry.
+The numeric prefix fixes the load order. `01-tsc_python-profile.sh` sorts before
+`01-tsc_tools-profile.sh` (tsc_tools 2.1.7 uses the same `01-` prefix), so this package's
+fragment is sourced first, which is also why the fragment declares `TSC_MODULES_DIR` itself —
+so `tsc` still finds the `tsc_python_*` modules when tsc_tools is absent. If
+`01-tsc_tools-profile.sh` already declared that directory, this package skips its own
+declaration instead of duplicating the entry.
 
 **Runtime dependency:** this RPM declares a hard dependency on `tsc_tools >= 2.1.6`
 (the version that first shipped the drop-in loader in `/home/tsc/tsc_profile`).
-Install `tsc_tools` on the target machine first; on older `tsc_tools` `%post` bootstraps
-a loader block as a fallback, but aligning versions is recommended.
+Install `tsc_tools` on the target machine first. `%post` never rewrites an existing
+`/home/tsc/tsc_profile` — it only creates it from the packaged template (which sources
+`tsc_profile.d/*.sh`) when the file is missing — so tsc_tools' own files are never touched.
 
 ```bash
 source /home/tsc/tsc_profile                        # full tsc environment (loads every drop-in)
 source /home/tsc/tsc_profile.d/01-tsc_python-profile.sh  # this package's environment alone
 ```
 
-On uninstall, `%preun` removes this package's drop-in (after a sha256 check against
-`.installed_manifest`); `%postun` prunes the now-empty directory shells; rpm itself removes every
+On uninstall, `%preun` removes this package's drop-in unconditionally (the file name belongs
+solely to this package); `%postun` prunes the now-empty directory shells; rpm itself removes every
 packaged file. Kept on purpose: `/home/tsc/tsc_profile`, `/home/tsc/tsc_profile.d` with any custom
 fragment, `/var/log/tsc` with its runtime logs.
 
@@ -77,7 +81,6 @@ from `tsc_profile`); review and delete the backups once the new package is confi
 .
 ├── build.sh                # build entry script (container build -> payload -> nfpm RPM)
 ├── Dockerfile              # the only builder image (CentOS 7.9, glibc 2.17 baseline)
-├── func                    # shared function library (logging etc.)
 ├── packaging/rpm/
 │   ├── nfpm.yaml.tmpl      # nfpm package definition template
 │   ├── preinstall.sh.tmpl  # %pre  (env admission + legacy rotation, INJECT-ed)
@@ -92,6 +95,7 @@ from `tsc_profile`); review and delete the backups once the new package is confi
 ├── THIRD_PARTY_NOTICES.zh_CN.md
 ├── files/
 │   ├── pack.sh             # in-container packaging script (install tree, metadata)
+│   ├── func                 # shared function library (logging etc.), single copy
 │   ├── ansible/            # ansible.cfg / hosts / roles (shipped)
 │   ├── modules/            # tsc_python_* plugin modules (shipped)
 │   ├── environment.yml     # conda environment definition (python version, system libraries)
@@ -177,7 +181,7 @@ Common parameters can be stored in `build.conf` to avoid typing them every time.
 
 ```ini
 [build]
-micromamba_ver = 2.5.0
+micromamba_ver = 2.9.0
 repo_local     = http://192.168.1.100
 python_version = 3.13.16
 pypi_index     = https://mirrors.cernet.edu.cn/pypi/web/simple
@@ -229,7 +233,8 @@ tsc_python-<version>-<release>.<arch>.rpm        # RPM package
 tsc_python-<version>-<release>.<arch>.rpm.sha256 # SHA256 checksum file
 ```
 
-`<version>` comes from `Version=` in `release-note.md`, `<release>` is the build date (`YYYYMMDD`).
+`<version>` comes from `Version=` in `release-note.md`, `<release>` is the build
+timestamp (`YYYYMMDDHHMMSS`).
 Build metadata (python / micromamba version, glibc baseline) is shipped inside the package as
 `/home/tsc/tsc_python/build-info.json`.
 
@@ -244,6 +249,16 @@ Docker output of each build is saved to `log/build-<arch>-<timestamp>.log`.
 `files/requirements.txt` is the **install list** — the build runs `uv pip install -r` against it. Since it is (or will be) generated, do not put process notes in it.
 
 `requirements.txt` is the generated, locked install list (== pins from `uv pip compile`); do not hand-edit versions — change `requirements.in` and regenerate it.
+
+**Layer boundary:** whatever the conda layer provides — native libraries *and* pure-Python
+packages conda also ships (`cryptography`, `cffi`, `pycparser`, `packaging`,
+`typing-extensions`) — is filtered out before `uv pip install` runs (see the Dockerfile); the
+pip layer only installs what conda does not have. `ansible-core` / `asyncssh` still declare
+those dependencies, but pip finds them already satisfied by the conda layer and leaves them
+alone — this keeps a pip wheel from shadowing the conda-built binary when the lock file and
+the conda resolution drift apart. `files/pack.sh`'s `check_pip_conda_overlap` enforces the
+boundary at build time: if any package ends up installed by pip/uv while conda also provides
+it, the build fails.
 
 ### Locking / regenerating versions
 

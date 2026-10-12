@@ -9,10 +9,10 @@ release
 stage
 packaging
 lib
-func
 note.md
 README.md
 README.zh_CN.md
 README-dev.md
+KNOWN_ISSUES.md
 build.conf
 build.conf.example

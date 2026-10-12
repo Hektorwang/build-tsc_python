@@ -28,7 +28,6 @@ dependencies:
   - libexpat
   - libffi
   - libgcc
-  - libgcc-ng
   - libgomp
   - liblzma
   - libnsl
@@ -52,17 +51,13 @@ dependencies:
   - pynacl
   - pyopenssl
   - pysocks
-  - python=3.13.12
+  - python=3.13.16
   - python-gssapi
-  - python_abi
   - readline
   - requests
   - setuptools
   - six
-  - sqlite
-  - tk
   - typing-extensions
-  - typing_extensions
   - tzdata
   - urllib3
   - uv

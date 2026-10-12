@@ -27,7 +27,8 @@ rpm -e tsc_python
 ```
 
 包内文件由 rpm 删除, 安装时部署的 profile drop-in (`/home/tsc/tsc_profile.d/01-tsc_python-profile.sh`)
-由 `%preun` 回收, 空目录壳由 `%postun` 清理; `/home/tsc/tsc_profile` 公共入口、`tsc_profile.d`
+由 `%preun` 无条件回收 (该文件名归属本包独占, 不保留本地修改; 现场自定义片段请另建文件),
+空目录壳由 `%postun` 清理; `/home/tsc/tsc_profile` 公共入口、`tsc_profile.d`
 目录本身与 `/var/log/tsc` 及运行期日志保留.
 
 ## 环境加载
@@ -36,7 +37,7 @@ rpm -e tsc_python
 公共入口 `/home/tsc/tsc_profile` 按文件名顺序加载 `tsc_profile.d/*.sh`
 (首次安装时由本包或 tsc_tools 创建).
 
-> 本 RPM 硬依赖 `tsc_tools >= 2.1.6` (首次在 `tsc_profile` 中提供 drop-in 加载器的版本), 目标机请先安装 tsc_tools; 版本过旧时 `%post` 会 bootstrap 一段加载块兜底, 但建议对齐版本.
+> 本 RPM 硬依赖 `tsc_tools >= 2.1.6` (首次在 `tsc_profile` 中提供 drop-in 加载器的版本), 目标机请先安装 tsc_tools. `%post` 从不改写已存在的 `/home/tsc/tsc_profile`, 仅在其缺失时用包内模板创建 (模板自带加载逻辑), 不会碰 tsc_tools 自己的文件.
 
 ```bash
 source /home/tsc/tsc_profile                           # 完整 tsc 环境
@@ -48,9 +49,9 @@ source /home/tsc/tsc_profile.d/01-tsc_python-profile.sh # 只加载本包环境
 安装完成后执行冒烟测试:
 
 ```bash
-sh /home/tsc/tsc_python/smoke_test.sh
+bash /home/tsc/tsc_python/smoke_test.sh
 # 无外网环境跳过 TLS 探测:
-sh /home/tsc/tsc_python/smoke_test.sh --skip-network
+bash /home/tsc/tsc_python/smoke_test.sh --skip-network
 ```
 
 覆盖项: glibc 基线、核心包导入、Python 运行时功能自检、ansible localhost ping、TLS 出网、安装链路.

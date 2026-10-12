@@ -22,7 +22,8 @@ ARCH="$(arch)"
 D14="$(date +%Y%m%d%H%M%S)"
 DOCKERFILE="Dockerfile"
 
-source "${WORK_DIR}/func"
+# 函数库唯一副本在 files/func (容器内由 Dockerfile COPY 到工作目录, pack.sh 源同一份)
+source "${WORK_DIR}/files/func"
 
 trap gracefully_abort INT
 
@@ -96,11 +97,17 @@ else
     LOGWARNING "build.conf not found, using built-in defaults"
 fi
 
-# 最终兜底默认值
-micromamba_version="${micromamba_version:-2.5.0}"
+# 最终兜底默认值 (与 build.conf.example 保持一致)
+micromamba_version="${micromamba_version:-2.9.0}"
 repo_local="${repo_local:-}"
 pypi_index="${pypi_index:-https://mirrors.cernet.edu.cn/pypi/web/simple}"
 conda_forge="${conda_forge:-https://mirrors.cernet.edu.cn/anaconda/cloud/conda-forge}"
+
+# python 版本号格式校验: 形如 3.13 或 3.13.12; 非法值到容器内才会被 conda 拒绝, 入口提前拦下
+if [[ -n "${python_version}" && ! "${python_version}" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+    LOGERROR "python_version 格式非法: '${python_version}' (期望 3.13 / 3.13.12 形式)"
+    exit 1
+fi
 
 if [[ -z "${repo_local}" ]]; then
     LOGERROR "yum 源地址未配置: 请通过 --repo-local 参数或 build.conf 的 repo_local 键提供"
@@ -193,7 +200,7 @@ fi
 
 if [[ "${_need_download}" == true ]]; then
     LOGINFO "Downloading micromamba ${micromamba_version} for ${ARCH}..."
-    curl --fail --insecure --location \
+    curl --fail --location \
         --output "${micromamba_cache}" \
         "https://micro.mamba.pm/api/micromamba/${micromamba_url_tag}/${micromamba_version}"
     echo "${micromamba_version}-${ARCH}" > "${micromamba_cache_ver}"
@@ -226,7 +233,7 @@ ensure_jq() {
             LOGINFO "jq cache checksum mismatch (${arch}), re-downloading"
         fi
         LOGINFO "Downloading jq ${jq_version} for ${arch}..."
-        curl --fail --insecure --location --output "${file}" "${url}"
+        curl --fail --location --output "${file}" "${url}"
         chmod +x "${file}"
     done
     LOGSUCCESS "jq ready: ${TMP_DIR}/jq-x86_64 / ${TMP_DIR}/jq-aarch64"
@@ -268,7 +275,12 @@ build_target() {
     LOGSUCCESS "Docker build succeeded"
 
     # 从容器取出产物（安装树已在容器内由 files/pack.sh 组装为 output/payload）
+    # output/<arch> 先整体清空再取: docker cp 是目录合并语义而非替换,
+    # 不清会把旧布局残留 (如重构前 tsc_tools/ 下的 ansible/modules) 合并进 payload,
+    # 最终被打进 RPM —— 与 tsc_tools 命名空间冲突 (安装冲突/卸载误删)
     LOGINFO "Extracting build artifacts..."
+    rm -rf "${output_dir}"
+    mkdir -p "${output_dir}"
     local container_id
     container_id=$(docker create "${image_tag}")
 
@@ -315,6 +327,10 @@ render_template() {
 package_rpm() {
     local payload_dir="${OUTPUT_DIR}/${ARCH}/payload"
 
+    # stage/ 由 RETURN trap 统一回收: 覆盖成功路径与所有 return 1 失败路径。
+    # RETURN trap 不被本函数调用的子函数继承 (未开 functrace), 只在本函数返回时触发
+    trap 'rm -rf "${STAGE_DIR}"' RETURN
+
     if [[ ! -d "${payload_dir}/home/tsc" ]]; then
         LOGERROR "未找到打包源 ${payload_dir}/home/tsc, 容器内 pack.sh 可能未生成 payload"
         return 1
@@ -340,10 +356,11 @@ package_rpm() {
     LOGINFO "Using packager: ${NFPM_BIN} (nfpm ${NFPM_VERSION:-unknown})"
 
     # ---------- 2. 版本号 ----------
-    # version 取自 release-note.md 的 Version=, release 取构建日期
+    # version 取自 release-note.md 的 Version=; release 取构建时间戳 (YYYYMMDDHHMMSS):
+    # 精确到秒, 保证同日多次构建的 NVR 可区分 (rpm 按字符串比较版本, 时间戳递增即可正常升级)
     local version release
     version="$(awk -F '=' '/Version=/{print $2; exit}' "${WORK_DIR}"/release-note.md | tr -d '[:space:]')"
-    release="$(date "+%Y%m%d")"
+    release="$(date "+%Y%m%d%H%M%S")"
 
     if [[ -z "${version}" ]]; then
         LOGERROR "未能从 release-note.md 解析出 Version="
@@ -361,6 +378,18 @@ package_rpm() {
     rm -rf "${STAGE_DIR}"
     mkdir -p "${STAGE_DIR}/rpm-scripts" "${STAGE_DIR}/payload/home"
     \cp -a "${payload_dir}/home/tsc" "${STAGE_DIR}/payload/home/tsc"
+
+    # 防御: payload/home/tsc 下只允许 tsc_python 一个顶层目录。
+    # 出现其他目录说明构建残留混入 (docker cp 合并语义下旧布局文件会留在 output/<arch>),
+    # 直接中止打包——这类文件打进包会与 tsc_tools 的路径冲突
+    local stray_top
+    stray_top="$(find "${STAGE_DIR}/payload/home/tsc" -mindepth 1 -maxdepth 1 \
+        ! -name tsc_python -print -quit 2>/dev/null)"
+    if [[ -n "${stray_top}" ]]; then
+        LOGERROR "payload 含非预期顶层目录 '${stray_top}' (疑似旧构建残留), 已中止打包"
+        LOGERROR "如确认要随包分发该目录, 请先修正其来源, 而非在此放行"
+        return 1
+    fi
 
     # 防御: base.yml 不能留在批量安装树里——它与下方 %config(noreplace) 独立条目指向同一目标,
     # 留着会触发 nfpm content collision。容器侧 pack.sh 已抽出并删除, 这里再确保批量树里没有它。
@@ -503,7 +532,6 @@ package_rpm() {
     )
     LOGINFO "Size:    $(du -h "${release_file}" | cut -f1)"
     LOGINFO "SHA256:  $(sha256sum "${release_file}" | cut -d' ' -f1)"
-    rm -rf "${STAGE_DIR}"
 
     LOGSUCCESS "Build Over --> ${release_file}"
     return 0

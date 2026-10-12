@@ -11,7 +11,7 @@
 ## 安装
 
 制成品为单个 RPM 包: `tsc_python-<version>-<release>.<arch>.rpm`
-(`<version>` 取自 `release-note.md` 的 `Version=`, `<release>` 为构建日期).
+(`<version>` 取自 `release-note.md` 的 `Version=`, `<release>` 为构建时间戳 `YYYYMMDDHHMMSS`).
 
 ```bash
 # 安装
@@ -41,22 +41,25 @@ python3。所有步骤幂等。
 | 路径 | 归属 | 卸载是否删除 |
 | --- | --- | --- |
 | `/home/tsc/tsc_profile` | 公共入口，谁先装谁建，只负责 source `tsc_profile.d/*.sh` | 否（公共基础设施） |
-| `/home/tsc/tsc_profile.d/0-tsc_tools-profile` | tsc_tools | 是，由 tsc_tools |
-| `/home/tsc/tsc_profile.d/01-tsc_python-profile.sh`（本包） | tsc_python | 是，由 `%preun`（带 hash 校验，被改过则保留） |
+| `/home/tsc/tsc_profile.d/01-tsc_tools-profile.sh` | tsc_tools | 是，由 tsc_tools |
+| `/home/tsc/tsc_profile.d/01-tsc_python-profile.sh`（本包） | tsc_python | 是，由 `%preun`（本包独占：每次安装/升级刷新，卸载时无条件回收，不保留本地修改；现场自定义片段请另建文件，如 `99-local-profile.sh`） |
 
-数字前缀决定加载顺序（先 PATH/模块目录，再环境）；片段里自带 `TSC_MODULES_DIR` 声明，
-是为了在没装 tsc_tools 时 `tsc` 也能发现 `tsc_python_*` 模块——若 `0-tsc_tools-profile`
-已声明过同一目录则跳过，避免重复项让 `gen_rag.sh` 把同一份 readme 收录两次。
+数字前缀决定加载顺序。`01-tsc_python-profile.sh` 按全名字母序排在 `01-tsc_tools-profile.sh`
+之前（tsc_tools 2.1.7 与本包同用 `01-` 前缀），因此本包片段先被加载；片段里自带
+`TSC_MODULES_DIR` 声明，是为了在没装 tsc_tools 时 `tsc` 也能发现 `tsc_python_*` 模块——若
+`01-tsc_tools-profile.sh` 已声明过同一目录则跳过，避免重复项让 `gen_rag.sh` 把同一份
+readme 收录两次。
 
 **运行期依赖**：本 RPM 声明硬依赖 `tsc_tools >= 2.1.6`（首次在 `tsc_profile` 中提供 drop-in 加载器的版本）。
-目标机请先安装 `tsc_tools`；若 `tsc_tools` 过旧，`%post` 会 bootstrap 一段加载块兜底，但建议直接装对齐版本。
+目标机请先安装 `tsc_tools`。`%post` 从不改写已存在的 `/home/tsc/tsc_profile`——仅在该文件缺失时
+用包内模板创建（模板自带 `tsc_profile.d/*.sh` 加载逻辑），因此不会碰 tsc_tools 自己的文件。
 
 ```bash
 source /home/tsc/tsc_profile                           # 完整 tsc 环境（加载全部 drop-in）
 source /home/tsc/tsc_profile.d/01-tsc_python-profile.sh # 只加载本包环境
 ```
 
-卸载时 `%preun` 按 `.installed_manifest` 记录的 sha256 校验后删除本包 drop-in，
+卸载时 `%preun` **无条件**删除本包 drop-in（该文件名归属本包独占），
 `%postun` 清理随之空掉的本包目录壳，包内文件由 rpm 自行删除。有意保留：`/home/tsc/tsc_profile`、
 `/home/tsc/tsc_profile.d`（含现场自定义片段）、`/var/log/tsc` 及运行期日志。
 
@@ -71,7 +74,6 @@ source /home/tsc/tsc_profile.d/01-tsc_python-profile.sh # 只加载本包环境
 .
 ├── build.sh                # 构建入口脚本 (容器构建 -> 安装树 -> nfpm 打 RPM)
 ├── Dockerfile              # 唯一构建镜像 (CentOS 7.9, glibc 2.17 基线)
-├── func                    # 日志等公共函数库
 ├── packaging/rpm/
 │   ├── nfpm.yaml.tmpl      # nfpm 包定义模板
 │   ├── preinstall.sh.tmpl  # %pre  (环境准入 + 旧目录轮转, 需注入)
@@ -86,6 +88,7 @@ source /home/tsc/tsc_profile.d/01-tsc_python-profile.sh # 只加载本包环境
 ├── THIRD_PARTY_NOTICES.zh_CN.md
 ├── files/
 │   ├── pack.sh             # 容器内打包脚本（组装安装树、元数据）
+│   ├── func                 # 日志等公共函数库（唯一副本）
 │   ├── ansible/            # ansible.cfg / hosts / roles (随包分发)
 │   ├── modules/            # tsc_python_* 插件模块 (随包分发)
 │   ├── environment.yml     # conda 环境定义（python 版本、系统库）
@@ -171,7 +174,7 @@ bash build.sh
 
 ```ini
 [build]
-micromamba_ver = 2.5.0
+micromamba_ver = 2.9.0
 repo_local     = http://192.168.1.100
 python_version = 3.13.16
 pypi_index     = https://mirrors.cernet.edu.cn/pypi/web/simple
@@ -222,7 +225,7 @@ tsc_python-<version>-<release>.<arch>.rpm        # RPM 包
 tsc_python-<version>-<release>.<arch>.rpm.sha256 # SHA256 校验文件
 ```
 
-`<version>` 取自 `release-note.md` 的 `Version=`, `<release>` 为构建日期 (`YYYYMMDD`).
+`<version>` 取自 `release-note.md` 的 `Version=`, `<release>` 为构建时间戳 (`YYYYMMDDHHMMSS`).
 构建元数据 (python / micromamba 版本、glibc 基线) 随包分发在
 `/home/tsc/tsc_python/build-info.json`.
 
@@ -237,6 +240,13 @@ tsc_python-<version>-<release>.<arch>.rpm.sha256 # SHA256 校验文件
 `files/requirements.txt` 是**安装清单**——构建执行 `uv pip install -r` 的对象. 它是 (或将是) 生成物, 不要在里面写流程性注释.
 
 `requirements.txt` 是生成的**已锁定**安装清单 (`uv pip compile` 产出的 `==` 固定版本); 不要手工改版本号——改 `requirements.in` 后重新生成即可.
+
+**分层边界**: conda 已提供的一切 (原生库 + conda 也有的纯 python 包: `cryptography`/`cffi`/
+`pycparser`/`packaging`/`typing-extensions`) 都在 `uv pip install` 之前被过滤掉 (见
+`Dockerfile`), pip 层只装 conda 没有的: `ansible-core` / `asyncssh` 仍声明这些依赖, 但 pip
+发现环境里已满足, 直接沿用 conda 版本——避免锁文件与 conda 解析漂移时 pip wheel 覆盖 conda
+构建版. `files/pack.sh` 的 `check_pip_conda_overlap` 在构建期兜底断言这条边界: 一旦某包实际
+由 pip/uv 装入而 conda 也提供它, 直接禁止出包.
 
 ### 锁定 / 重新生成版本
 

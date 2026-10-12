@@ -10,7 +10,7 @@
 # 这些已由 rpm 完成):
 #   1. 补模块 run.sh 可执行位
 #   2. 准备 /var/log/tsc 日志目录 (ansible.cfg: log_path=/var/log/tsc/ansible.log)
-#   3. 部署 profile: /home/tsc/tsc_profile 公共入口 + 本包 drop-in (带 hash 记入清单)
+#   3. 部署 profile: /home/tsc/tsc_profile 公共入口 + 本包 drop-in (每次刷新, 卸载时无条件回收)
 #   4. 重建 rag.md (调用 tsc_tools 的 gen_rag.sh; 须在 profile 之后, 使其能取到
 #      TSC_MODULES_DIR 从而覆盖本包模块)
 #   5. 给 ansible 的 INTERPRETER_PYTHON_FALLBACK 插入本环境 python3 (patch_ansible.py)
@@ -48,29 +48,12 @@ readonly DROPIN_FILE="${TSC_PROFILE_D_DIR}/01-tsc_python-profile.sh"
 #   tsc_python.sh            drop-in 化之前本包把片段直接放在这个名字下
 #   1-tsc_python-profile.sh  单数字前缀时期 (本次改名 01- 之前的名字), 升级上来需清理, 避免与新名并存
 readonly STALE_DROPIN="${TSC_PROFILE_D_DIR}/tsc_python.sh ${TSC_PROFILE_D_DIR}/1-tsc_python-profile.sh"
-readonly MANIFEST_FILE="${ENV_ROOT}/.installed_manifest"
 readonly LOG_DIR="/var/log/tsc"
 
 if [[ ! -x "${PYTHON_BIN}" ]]; then
     LOGERROR "${PYTHON_BIN} 缺失或不可执行, 包内容不完整"
     exit 1
 fi
-
-##################################################
-# 取文件 sha256, 供卸载侧判断"是否仍是本包部署的版本"
-# 参数:
-#   $1 - 文件路径
-# 输出:
-#   十六进制摘要; 文件不存在或没有 sha256sum 时输出空
-##################################################
-file_sha256() {
-    local file="$1"
-    [[ -f "${file}" ]] || return 1
-    if command -v sha256sum &>/dev/null; then
-        sha256sum <"${file}" | awk '{print $1}'
-    fi
-    return 0
-}
 
 ##################################################
 # 判断某个路径是否已被某个已安装包认领 (避免动别人的文件)
@@ -90,12 +73,13 @@ rpm_owns() {
 # 与 tsc_tools 2.1.7+ 的分工一致:
 #   /home/tsc/tsc_profile                  公共入口, 只负责 source tsc_profile.d/*.sh
 #                                          (谁先装谁创建, 所有工具卸载都不删)
-#   tsc_profile.d/0-tsc_tools-profile      tsc_tools 自己的 drop-in
+#   tsc_profile.d/01-tsc_tools-profile.sh   tsc_tools 自己的 drop-in (与本包同 01- 前缀, 按全名字母序)
 #   tsc_profile.d/01-tsc_python-profile.sh 本包 drop-in
 #   数字前缀决定加载顺序: 先 PATH/modules 再环境, 两侧互不依赖
 #
-# drop-in 是 %post 部署的衍生文件 (不在 rpm 文件清单里), 因此把"路径 + sha256"
-# 写进 .installed_manifest, 由 %preun 校验一致后才删——用户改过就不删。
+# drop-in 是 %post 部署的衍生文件 (不在 rpm 文件清单里), 但**仅归属本包**:
+# 每次安装/升级都用包内版本刷新, 卸载时由 %preun 无条件回收——不保留本地修改
+# (需要自定义片段请另建文件, 如 99-local-profile.sh, 不占用本包的名字)。
 ##################################################
 deploy_profile() {
     mkdir -p "${TSC_PROFILE_D_DIR}"
@@ -119,17 +103,7 @@ deploy_profile() {
     done
 
     \cp "${SOURCE_DROPIN}" "${DROPIN_FILE}"
-    LOGSUCCESS "Deployed drop-in ${DROPIN_FILE}"
-
-    # 清单由本函数独占维护: FILE:<path>:<sha256>
-    local sum
-    sum="$(file_sha256 "${DROPIN_FILE}")"
-    if [[ -n "${sum}" ]]; then
-        : >"${MANIFEST_FILE}"
-        echo "FILE:${DROPIN_FILE}:${sum}" >>"${MANIFEST_FILE}"
-    else
-        LOGWARNING "无法计算 ${DROPIN_FILE} 的 sha256, 卸载时不会自动回收该文件"
-    fi
+    LOGSUCCESS "Deployed drop-in ${DROPIN_FILE} (本包独占, 升级刷新/卸载回收, 不保留本地修改)"
 }
 
 ##################################################
@@ -159,8 +133,9 @@ chmod 0755 "${ENV_ROOT}"/modules/*/run.sh 2>/dev/null ||
     LOGWARNING "no module run.sh found, skip executable bit fix"
 
 # 2. 日志目录 (不属于包内容, 卸载时保留运行期日志)
+# 0750: ansible 日志可能含敏感信息 (主机清单/凭据片段), 不放行 other 读
 mkdir -p "${LOG_DIR}"
-chmod 0755 "${LOG_DIR}"
+chmod 0750 "${LOG_DIR}"
 if id tsc &>/dev/null; then
     chown tsc: "${LOG_DIR}" ||
         LOGWARNING "chown tsc ${LOG_DIR} 失败, 以 tsc 用户运行 ansible 时日志可能不可写"
@@ -168,6 +143,13 @@ fi
 
 # 3. profile: 公共入口 + 本包 drop-in (须早于 gen_rag, 让它取到 TSC_MODULES_DIR)
 deploy_profile
+
+# 3b. 迁移清理: 旧版本 (hash 清单机制) 遗留的 .installed_manifest, 新机制不再使用,
+#     不删它会作为无主文件留在环境目录里
+if [[ -e "${ENV_ROOT}/.installed_manifest" ]]; then
+    rm -f "${ENV_ROOT}/.installed_manifest" &&
+        LOGINFO "removed stale .installed_manifest (旧版本遗留)"
+fi
 
 # 4. 重建 rag.md (生成器由 tsc_tools 随包提供), 使 tsc 命令帮助与 RAG 文档覆盖本包模块
 #    tsc_tools >= 2.1.7 的 gen_rag.sh 自己 source tsc_profile 读 TSC_MODULES_DIR,

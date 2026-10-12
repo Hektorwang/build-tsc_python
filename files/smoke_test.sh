@@ -7,7 +7,7 @@
 #
 # 用途: 在目标机安装 tsc_python 后, 验证环境可用性
 #       (glibc 基线/核心包导入/运行时功能自检/ansible 实战/TLS)
-# 用法: sh smoke_test.sh [--skip-network]
+# 用法: bash smoke_test.sh [--skip-network]
 #       TSC_SMOKE_TLS_URL=<url> 可自定义 TLS 探测地址 (默认 https://mirrors.aliyun.com/pypi/simple/)
 # 退出码: 0=通过(允许 WARN), 1=存在 FAIL, 2=找不到 python 环境
 # 兼容: bash 4.2+ (CentOS 7), 自包含, 不依赖 func 库
@@ -16,6 +16,11 @@
 #   PASS - 必须通过的核心项
 #   WARN - 条件项 (无外网、已知不兼容组件等), 不影响整体结论
 #   FAIL - 环境损坏或不满足运行基线
+
+# 脚本依赖 bash 特性 ([[ ]]/数组/here-string): 被 sh(dash) 调用时转交 bash 重跑
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
 
 set -u
 set -o pipefail

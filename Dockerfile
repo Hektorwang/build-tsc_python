@@ -54,13 +54,30 @@ RUN \cp /tmp/condarc /root/.condarc && \
     micromamba env create -f "/tmp/environment.yml" --yes --no-pyc -c conda-forge --use-uv --name "${ENV_NAME}"
 
 COPY ./files/requirements.txt /tmp/
+# pip 层只装 conda 没有的包: 过滤掉 conda 已提供的全部条目 (原生库 cryptography/cffi/pycparser,
+# 以及 conda 同样提供的纯 python 包 packaging/typing-extensions)。
+# 不过滤的后果: 锁文件与 conda 解析漂移时, pip wheel 会覆盖 conda 构建版 (openssl ABI 风险);
+# 过滤后 ansible-core/asyncssh 仍声明这些依赖, 但 pip 发现环境里已满足, 直接沿用 conda 版本。
+# pack.sh 的 check_pip_conda_overlap 会在构建期兜底断言这条边界。
 RUN export MAMBA_ROOT_PREFIX && \
     eval "$("${MICROMAMBA_DIR}/bin/micromamba" shell hook --shell bash)" && \
     micromamba activate "${ENV_NAME}" && \
     [[ $(arch) == "aarch64" ]] && export CFLAGS="-D__ARM_ARCH=8" || true && \
-    uv pip install -r /tmp/requirements.txt
+    grep -vE '^(cffi|cryptography|packaging|pycparser|typing-extensions)==' /tmp/requirements.txt > /tmp/requirements.pip.txt && \
+    uv pip install -r /tmp/requirements.pip.txt
 
-COPY ./files/ /home/tsc/build_micromamba/
+# 工作目录只放打包必需的源文件: files/tmp/ 下的 micromamba/jq 缓存与构建期配置
+# (condarc/pip.conf/environment.yml) 已由上方专用 COPY 直接进 /tmp, 不在此重复,
+# 避免把二进制缓存带进工作目录层
+# 注意: files/ 下新增随包文件时同步补充此列表 (漏掉不报错, 只会静默不随包)
+# 注意: COPY 目录源时内容会落入目标目录 (COPY dir dest → dest/<dir 的内容>),
+# 因此 ansible/ 与 modules/ 必须各自带目标路径, 不能与其他源共用一行
+COPY ./files/centos7.repo ./files/environment.yml ./files/func ./files/pack.sh \
+    ./files/patch_ansible.py ./files/profile ./files/readme.md ./files/requirements.in \
+    ./files/requirements.txt ./files/smoke_test.sh ./files/tsc_profile \
+    /home/tsc/build_micromamba/
+COPY ./files/ansible /home/tsc/build_micromamba/ansible
+COPY ./files/modules /home/tsc/build_micromamba/modules
 
 # 仓库根目录的文档也进入容器工作目录, 由 build.sh 打入安装包
 COPY ./release-note.md ./THIRD_PARTY_NOTICES.md ./THIRD_PARTY_NOTICES.zh_CN.md /home/tsc/build_micromamba/

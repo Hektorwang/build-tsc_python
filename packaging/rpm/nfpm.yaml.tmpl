@@ -19,7 +19,7 @@ description: |
 #   tsc_tools >= 2.1.6
 #                profile 以 drop-in 形式提供 (/home/tsc/tsc_profile.d/01-tsc_python-profile.sh),
 #                需 tsc_tools >= 2.1.6 的 tsc_profile 才会加载该目录下的 *.sh;
-#                低于此版本时 %post 会 bootstrap 一段加载器兜底, 但强烈建议直接装对齐的 tsc_tools
+#                %post 不改写已存在的 tsc_profile (仅缺失时用包内模板创建), 不碰 tsc_tools 的文件
 depends:
   - bash >= 4.0
   - coreutils
@@ -35,7 +35,8 @@ contents:
     dst: /home/tsc
 
   # ansible 的 INTERPRETER_PYTHON_FALLBACK 由 %post 的 patch_ansible.py 改写;
-  # 以 %config(noreplace) 单独声明: 升级保留现场已改写版本, rpm -V 不视其为异常。
+  # 以 %config(noreplace) 单独声明: 升级保留现场已改写版本 (不被包内原版覆盖)。
+  # 注意 noreplace 不免除校验: rpm -V 会把 patch 过的 base.yml 报为 S.5....T. c, 属预期。
   # 该文件在容器内已被移出批量安装树 (pack.sh stage_ansible_base), 此处单独纳入。
   - src: "@STAGE_DIR@/ansible_base.yml"
     dst: /home/tsc/tsc_python/envs/tsc_python/lib/python@PYTHON_MM@/site-packages/ansible/config/base.yml

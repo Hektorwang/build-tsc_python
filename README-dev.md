@@ -33,6 +33,7 @@ files/
   patch_ansible.py                  ansible 解释器补丁 (随包分发)
 output/<arch>/payload/home/tsc/     中间产物: 安装树 (相对 /home/tsc)
 release/                            RPM 产物
+KNOWN_ISSUES.md                     审查发现的暂缓事项清单 (不随包分发, 修复一项划掉一项)
 ```
 
 ---
@@ -45,7 +46,7 @@ release/                            RPM 产物
 | 2 | 预下载 micromamba 与 jq 静态二进制到 `files/tmp/`（缓存优先，jq 带 sha256 校验） |
 | 3 | 生成构建期配置 `environment.yml` / `condarc` / `pip.conf` 到 `files/tmp/` |
 | 4 | `docker build --target builder`；容器内 `files/pack.sh` 做 glibc 门限检查并组装安装树到 `output/payload/` |
-| 5 | `docker cp` 取回产物到 `output/<arch>/` |
+| 5 | `docker cp` 取回产物到 `output/<arch>/`（取回前**整体清空**该目录：`docker cp` 是目录合并语义，不清会把旧布局残留合并进 payload） |
 | 6 | **依赖检查**：打包机需提供 `nfpm`（默认 `/bin/nfpm`，可用 `NFPM_BIN` 覆盖） |
 | 7 | **版本解析**：取 `release-note.md` 第一个 `Version=`；含 `-` 直接报错（RPM Version 不允许） |
 | 8 | **stage**：`output/<arch>/payload/home/tsc` → `stage/payload/home/tsc` |
@@ -53,9 +54,9 @@ release/                            RPM 产物
 | 10 | **scriptlet 语法自检**：三个脚本逐个 `bash -n`；再断言 `%pre` 含 `SUPPORTED_ARCHITECTURES=`/`check_env()`、无残留 `@ARCH@`，`%post` 含 `LOGINFO()` |
 | 11 | 渲染 `nfpm.yaml` 并 `nfpm package --packager rpm` |
 | 12 | **产物自检**：包信息 / `Requires` / 文件数 / 架构与构建架构一致 / 关键文件齐全 / 关键文件可执行位 / 四段 scriptlet 是否写入 |
-| 13 | 生成 `.sha256`，清理 `stage/` |
+| 13 | 生成 `.sha256`；`stage/` 由 `package_rpm` 的 RETURN trap 在成功/失败路径统一回收 |
 
-产物：`release/tsc_python-<version>-<release>.<arch>.rpm`（`release` 取构建日期 `YYYYMMDD`）。
+产物：`release/tsc_python-<version>-<release>.<arch>.rpm`（`release` 取构建时间戳 `YYYYMMDDHHMMSS`）。
 
 ---
 
@@ -79,16 +80,16 @@ release/                            RPM 产物
    | 路径 | 谁部署 | 卸载谁删 |
    |---|---|---|
    | `/home/tsc/tsc_profile` | 公共入口，谁先装谁建，只 source `tsc_profile.d/*.sh` | 都不删 |
-   | `tsc_profile.d/0-tsc_tools-profile` | tsc_tools `%post` | tsc_tools `%preun` |
+   | `tsc_profile.d/01-tsc_tools-profile.sh` | tsc_tools `%post` | tsc_tools `%preun` |
    | `tsc_profile.d/01-tsc_python-profile.sh` | 本包 `%post`（源为 `/home/tsc/tsc_python/profile`） | 本包 `%preun` |
 
-   数字前缀 = 加载顺序 = 变量拼装顺序：先 PATH 与 `TSC_MODULES_DIR`（0-），再环境（1-）。片段把 `/home/tsc/tsc_python/profile` 拷过去即可，`Profile` 源与公用入口模板 `tsc_profile` 都随包放在环境根目录。
+   加载顺序 = 文件名排序 = 变量拼装顺序。片段把 `/home/tsc/tsc_python/profile` 拷过去即可，`Profile` 源与公用入口模板 `tsc_profile` 都随包放在环境根目录。tsc_tools 2.1.7 起其 drop-in 名为 `01-tsc_tools-profile.sh`，与本包**同前缀**，先后按全名字母序（`01-tsc_python` 在 `01-tsc_tools` 前）：本包片段先激活环境并前插自己的模块目录，tsc_tools 片段再前插 PATH、后插其模块目录；两侧对 `TSC_MODULES_DIR` 的拼装方向不同（本包前插、tsc_tools 后插），最终 PATH 中本包环境优先、模块目录本包在前，与上表语义自洽。
 
-6. **包外的东西要么记清单要么明确不删**。drop-in 由 `%post` 部署（不在 rpm 文件清单里），因此把 `FILE:<path>:<sha256>` 写进 `<ENV_ROOT>/.installed_manifest`，`%preun` 校验 hash 一致才删——用户改过的片段不再被抢删。公用入口、`tsc_profile.d` 目录、`/var/log/tsc`、`%pre` 轮转出的备份一律保留。
+6. **包外的东西要么记清单要么明确不删**。drop-in 由 `%post` 部署（不在 rpm 文件清单里），但**文件名归属本包独占**：每次安装/升级都用包内版本刷新，`%preun` 真卸载时**无条件**删除——不保留本地修改（现场要自定义片段就另建文件，如 `99-local-profile.sh`，别占用本包的名字）。公用入口 `tsc_profile`、`tsc_profile.d` 目录、`/var/log/tsc`、`%pre` 轮转出的备份一律保留。
 
 `TSC_MODULES_DIR` 是 tsc 发现模块的唯一途径（`tsc`/`gen_rag.sh` 遍历该变量里的目录），本包模块独占 `/home/tsc/tsc_python/modules`（与 tsc_tools 的 modules 解耦）。本包片段因此要声明一次，并用 `":${TSC_MODULES_DIR:-}:"` 判重：**重复项会让 gen_rag.sh 把同一份 readme 收录两次。**
 
-本包在 `nfpm.yaml.tmpl` 的 `depends` 里声明硬依赖 `tsc_tools >= 2.1.6`——`/home/tsc/tsc_profile` 加载 `tsc_profile.d/*.sh` 的加载器由该版本起提供。低于此版本时 `%post` 会 bootstrap 一段 `# TSC_PYTHON: START ... : END` 加载块兜底（卸载时 `%preun` 摘同一标注块），但强烈建议直接装对齐版本，否则 `rpm -V tsc_tools` 会对被本包改动的 `tsc_profile` 报 size/md5 差异。
+本包在 `nfpm.yaml.tmpl` 的 `depends` 里声明硬依赖 `tsc_tools >= 2.1.6`——`/home/tsc/tsc_profile` 加载 `tsc_profile.d/*.sh` 的加载器由该版本起提供。`%post` **不改写**已存在的 `tsc_profile`（只在该文件缺失时用包内模板创建，模板自带加载逻辑），因此不会动 tsc_tools 的文件、也不会让 `rpm -V tsc_tools` 报差异；低于 2.1.6 的 tsc_tools 由 RPM 依赖直接拦下，没有也不做加载块 bootstrap。
 
 ### 3.1 安装树布局（`nfpm.yaml` 的 `dst: /home/tsc`）
 
@@ -109,7 +110,7 @@ release/                            RPM 产物
 
 ### 4.1 版本号
 
-只改 `release-note.md` 顶部的 `Version=`，`release` 号自动取构建日期。**不能在版本号里用 `-`**。
+只改 `release-note.md` 顶部的 `Version=`，`release` 号自动取构建时间戳（`YYYYMMDDHHMMSS`，精确到秒，同日多次构建 NVR 可区分）。**不能在版本号里用 `-`**。
 
 ### 4.2 架构
 
@@ -149,8 +150,8 @@ release/                            RPM 产物
 
 `patch_ansible.py` 在 `%post` 里改写 ansible 的 `ansible/config/base.yml`（`INTERPRETER_PYTHON_FALLBACK`），这是随现场运行生效的配置文件。因此它**不能**混在批量目录拷贝里随包做普通文件：
 
-- 若作为普通文件，现场被改写后 `rpm -V` 会误报为"被修改"；
-- `rpm -U` 升级时会用包内原版覆盖掉现场已 patch 的版本，丢失解释器回退配置。
+- 若作为普通文件，`rpm -U` 升级时会用包内原版覆盖掉现场已 patch 的版本，丢失解释器回退配置——`%config(noreplace)` 解决的正是这一点（升级保留现场版本）；
+- 注意 `noreplace` **不免除校验**：`rpm -V tsc_python` 会把 patch 过的 `base.yml` 报为 `S.5....T. c ...`（size/digest/mtime 差异，`c` = config 文件），这是**预期行为**，不代表包损坏，不要按"被篡改"排查。
 
 nfpm 的 `type: config|noreplace` 只能打在**独立 content 条目**上，无法标在目录整体拷贝里的单文件。所以 `files/pack.sh` 的 `stage_ansible_base` 在组装期把 `base.yml` 从安装树移出、单独暂存为 `output/staged/ansible_base.yml`，`build.sh` 再把它并入 stage 并以 `type: config|noreplace` 单独声明；`build.sh` 还会在 stage 拷贝后兜底删一次批量树里的 `base.yml`，避免与独立条目撞同一 `dst` 触发 nfpm `content collision`。
 
@@ -158,7 +159,7 @@ nfpm 的 `type: config|noreplace` 只能打在**独立 content 条目**上，无
 
 ### 4.9 产物不签名
 
-当前不做 GPG 签名，产物 `SIGPGP=(none)`。裸 `rpm -ivh` 不受影响；但走 dnf 仓库时 `gpgcheck=1`（默认）会**拒装未签名包**——上制品库前需要先补签名，或在仓库配置里关掉 `gpgcheck`。
+**已决策：不做 GPG 签名**（内网裸 `rpm -ivh`/`rpm -Uvh` 分发，产物 `SIGPGP=(none)`）。若将来改走 dnf 制品库且仓库 `gpgcheck=1`（默认），未签名包会被拒装——届时需重新评估：补签名，或在仓库配置里关掉 `gpgcheck`。
 
 ---
 
@@ -177,9 +178,9 @@ rpm -qp --requires release/*.rpm
 rpm -qlpv          release/*.rpm | head        # 文件与权限
 rpm -qp --scripts  release/*.rpm               # 看四段 scriptlet 是否齐全
 
-# 冒烟测试 (在目标机安装后执行)
-sh /home/tsc/tsc_python/smoke_test.sh
-sh /home/tsc/tsc_python/smoke_test.sh --skip-network
+# 冒烟测试 (在目标机安装后执行, 用 bash 运行; 被 sh 调用时脚本会自动转交 bash)
+bash /home/tsc/tsc_python/smoke_test.sh
+bash /home/tsc/tsc_python/smoke_test.sh --skip-network
 
 # 真实安装/卸载 (破坏性, 仅在测试机执行)
 rpm -ivh release/*.rpm && rpm -q tsc_python && rpm -ql tsc_python

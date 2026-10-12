@@ -3,7 +3,8 @@
 # 首次由某个 tsc 工具 (tsc_tools / tsc_python, 谁先装谁创建) 部署, 卸载不删除
 # (公共基础设施, 其他工具可能仍在用)
 # 内容由各工具的 drop-in (/home/tsc/tsc_profile.d/*.sh) 注入
-# drop-in 按文件名排序加载 (0- 在 1- 之前)
+# drop-in 按文件名排序加载 (tsc_python 与 tsc_tools 现同为 01- 前缀,
+# 按全名字母序: 01-tsc_python-profile.sh 在 01-tsc_tools-profile.sh 之前)
 
 for _tsc_profile_d in /home/tsc/tsc_profile.d/*.sh; do
   [ -r "${_tsc_profile_d}" ] && . "${_tsc_profile_d}"

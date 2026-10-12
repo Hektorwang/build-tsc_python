@@ -11,7 +11,7 @@ export ANSIBLE_CONFIG=/home/tsc/tsc_python/ansible/ansible.cfg
 # 模块目录: 本包模块独占 /home/tsc/tsc_python/modules (与 tsc_tools 的 modules 解耦)。
 # tsc (tsc_tools >= 2.1.7) 按 ${TSC_MODULES_DIR} (冒号分隔多目录) 遍历模块并据此生成 rag,
 # 所以本包也要声明一次——否则单独安装 tsc_python 时模块发现不了。
-# 0-tsc_tools-profile 已声明过则跳过: 同一目录重复出现在变量里会让 gen_rag.sh
+# 01-tsc_tools-profile.sh 已声明过则跳过: 同一目录重复出现在变量里会让 gen_rag.sh
 # 把同一份 readme 收录两次。
 if [[ ":${TSC_MODULES_DIR:-}:" != *":/home/tsc/tsc_python/modules:"* ]]; then
   export TSC_MODULES_DIR="/home/tsc/tsc_python/modules${TSC_MODULES_DIR:+:${TSC_MODULES_DIR}}"

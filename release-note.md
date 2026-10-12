@@ -1,5 +1,25 @@
 # tsc_python
 
+## Version=0.13.1
+
+Date=20261012
+
+1. fix(build): 修复构建残留混入产物——`docker cp` 取回前整体清空 `output/<arch>/` (cp 是目录合并语义, 不清会把旧布局残留合并进 payload); `package_rpm` 增加 payload 顶层负面断言 (只允许 `tsc_python`, 出现其他目录直接中止打包)。此前旧布局的 `tsc_tools/{ansible,modules}` 残留会被打进 RPM, 与 tsc_tools 命名空间冲突 (安装文件冲突/卸载误删)
+2. fix(build): `release` 号由构建日期改为构建时间戳 (`YYYYMMDDHHMMSS`), 同日多次构建的 NVR 可区分
+3. fix(build): `--python-version` 入口校验格式 (`3.13` / `3.13.12` 形式), 非法值提前报错而非到容器内才失败; micromamba/jq 下载去掉 `--insecure`, 恢复 TLS 证书校验
+4. fix(deps): pip 层安装前过滤 conda 已提供的原生库 (`cryptography` 及构建依赖 `cffi`/`pycparser`), 避免锁文件里的 pip wheel 在版本漂移时覆盖 conda 构建版; `requirements.txt` 按文档规定的 `--no-header --no-annotate` 重新生成 (无自动头, 无 `# via` 注释)
+5. chore(env): environment.yml 清理冗余显式条目——`sqlite` CLI (保留 `libsqlite` 即可, 已验证从环境移除)、`typing_extensions` (与 `typing-extensions` 重复)、`libgcc-ng` (`libgcc` 旧别名)、`python_abi`、`tk`; 后四项实际由传递依赖带入 (conda-forge 的 python 包把 tk 列为运行依赖), 显式条目移除后仍存在于环境中, 详见 KNOWN_ISSUES
+6. fix(rpm): `/var/log/tsc` 权限 0755 → 0750 (ansible 日志可能含敏感信息)
+7. fix(rpm): 冒烟测试统一以 `bash` 运行 (脚本增加被 `sh` 调用时自动转交 bash 的保护)
+8. chore(build): `stage/` 由 `package_rpm` 的 RETURN trap 在成功/失败路径统一回收 (此前失败路径不清理); Dockerfile 工作目录 COPY 改为显式文件列表, 不再把 `files/tmp/` 的 micromamba/jq 缓存带入镜像层
+9. docs: 更正文档与实现不一致——删除不存在的"旧版 tsc_tools bootstrap 加载块兜底"描述 (实际由 `tsc_tools >= 2.1.6` 硬依赖拦下, `%post` 只在不覆盖已有 `tsc_profile` 的前提下创建); 更正 `rpm -V` 说明 (`%config(noreplace)` 保证升级保留现场 patch, 但校验仍会报 patch 过的 base.yml, 属预期行为); THIRD_PARTY_NOTICES 更正 func 分发描述 (构建期使用, 不随安装包分发); tsc_tools drop-in 名称按 2.1.7 实际命名 `01-tsc_tools-profile.sh` 更正; README 示例 python 版本与 `environment.yml` 默认值对齐
+10. chore: 产物不做 GPG 签名 (已决策, 见 README-dev §4.9); 新增 `KNOWN_ISSUES.md` 记录暂缓事项
+11. fix(deps): pip/conda 分层边界落地——Dockerfile 过滤列表补充 `packaging`/`typing-extensions` (conda 同样提供, 防止锁文件与 conda 解析漂移时被 pip wheel 覆盖); `files/pack.sh` 新增 `check_pip_conda_overlap` 构建期断言 (某包 dist-info/INSTALLER 为 pip/uv 且 conda-meta 同名, 即禁止出包)
+12. refactor(rpm): drop-in `01-tsc_python-profile.sh` 明确为本包独占——每次安装/升级用包内版本刷新, `%preun` 真卸载时无条件回收, 不再保留本地修改; 移除 `.installed_manifest` hash 清单机制 (现场自定义片段请另建文件, 如 `99-local-profile.sh`)
+13. chore: `func` 仅保留 `files/func` 一份 (根目录副本已删除, `build.sh` 改源 `files/func`; 容器内 `pack.sh` 本就源同一份)
+14. chore: environment.yml 清理结论按实测更正——`sqlite` CLI 已从环境移除; `tk` 由 conda-forge python 包的运行依赖带入, 删显式条目无法剔除 (见 KNOWN_ISSUES)
+15. chore: 默认版本对齐 `build.conf.example`——environment.yml 与 README 示例统一到 python 3.13.16, micromamba 兜底默认值统一到 2.9.0 (双架构均已核实可下载)
+
 ## Version=0.13.0
 
 Date=20261012
@@ -12,8 +32,8 @@ Date=20261012
 6. feat(rpm): `%pre` 发现已有非 RPM (自解压包时代) 安装时, 先把 `/home/tsc/tsc_tools/micromamba` 轮转为 `micromamba.bak.<时间戳>`, 避免两套文件混装; 升级 (rpm -U) 时该目录由本包旧版本持有, 原样保留
 7. feat(rpm): `%post` 承接原 `install.sh` 的收尾动作 (模块 `run.sh` 可执行位、`/var/log/tsc` 日志目录、`gen_rag.sh` 重建 `rag.md`、`patch_ansible.py` 打解释器补丁), 各步骤幂等; `%preun` 仅在真卸载 (`$1==0`) 时回收, 升级交由新包 `%post` 重建
 8. refactor(path): 环境本体从 `/home/tsc/tsc_tools/micromamba` 迁到 `/home/tsc/tsc_python`——不再是"塞在 tsc_tools 下的一个子目录", 而是与 tsc_tools 平级的独立组件; 随包文档/工具与 `build-info.json` 同步改为 `/home/tsc/tsc_python/`, 自解压包时代的旧目录仍由 `%pre` 轮转
-9. feat(rpm): profile 改为与 tsc_tools 同构的 drop-in 模型——`/home/tsc/tsc_profile` 是公共入口 (只 source `/home/tsc/tsc_profile.d/*.sh`, 谁先装谁创建, 所有工具卸载都不删), 本包片段由 `%post` 部署为 `tsc_profile.d/01-tsc_python-profile.sh` (源为随包的 `/home/tsc/tsc_python/profile`), 数字前缀决定加载顺序 (`0-tsc_tools-profile` 在前); 卸载由 `%preun` 按 `<ENV_ROOT>/.installed_manifest` 里的 sha256 校验回收 (片段被改过则保留), 目录壳由新增的 `%postun` 清理
-10. feat(profile): drop-in 增加 `TSC_MODULES_DIR` 声明——tsc 与 `gen_rag.sh` 靠该变量 (冒号分隔多目录) 发现模块, 本包因此自建声明, 使单独安装 tsc_python 时 `tsc` 也能看到 `tsc_python_*` 模块; 已由 `0-tsc_tools-profile` 声明过同一目录则跳过, 避免重复项让 `gen_rag.sh` 把同一份 readme 收录两次
+9. feat(rpm): profile 改为与 tsc_tools 同构的 drop-in 模型——`/home/tsc/tsc_profile` 是公共入口 (只 source `/home/tsc/tsc_profile.d/*.sh`, 谁先装谁创建, 所有工具卸载都不删), 本包片段由 `%post` 部署为 `tsc_profile.d/01-tsc_python-profile.sh` (源为随包的 `/home/tsc/tsc_python/profile`), 数字前缀决定加载顺序 (`01-tsc_tools-profile.sh` 在前); 卸载由 `%preun` 按 `<ENV_ROOT>/.installed_manifest` 里的 sha256 校验回收 (片段被改过则保留), 目录壳由新增的 `%postun` 清理
+10. feat(profile): drop-in 增加 `TSC_MODULES_DIR` 声明——tsc 与 `gen_rag.sh` 靠该变量 (冒号分隔多目录) 发现模块, 本包因此自建声明, 使单独安装 tsc_python 时 `tsc` 也能看到 `tsc_python_*` 模块; 已由 `01-tsc_tools-profile.sh` 声明过同一目录则跳过, 避免重复项让 `gen_rag.sh` 把同一份 readme 收录两次
 11. fix(rpm): `%post` 清理早期形态的 drop-in `tsc_python.sh` (无包认领时删除), 避免升级后同一份环境被加载两次; `%post` 顺序调整为先部署 profile 再跑 `gen_rag.sh`, 使后者能取到 `TSC_MODULES_DIR`
 12. feat(rpm): `%pre` 新增 `rotate_legacy_profile`——自解压包时代留下的 `/home/tsc/tsc_python_profile` 及其在 `tsc_profile` 里的旧 `source` 行已过时, 与旧环境目录一样按"`rpm -qf` 认领则跳过"的规则轮转/摘行, 避免两份 profile 并存说不清哪份生效
 13. chore: 构建依赖与文档去掉 makeself (不再参与打包); 随包文档与工具路径改用新环境根目录 `/home/tsc/tsc_python/`

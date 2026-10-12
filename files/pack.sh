@@ -55,6 +55,69 @@ check_glibc_baseline() {
 }
 
 ##################################################
+# pip/conda 双层边界断言: pip 层不得安装 conda 已提供的包
+#
+# 边界规则: conda 已提供的一切 (原生库 + conda 也有的纯 python 包) 一律由 conda 层提供,
+# pip 层只装 conda 没有的 (Dockerfile 在 uv pip install 前过滤)。本断言是兜底——
+# 锁文件与 conda 解析各自演进, 一旦漂移, pip 会装上 conda 已有包并覆盖其构建版
+# (典型风险: openssl ABI 不匹配), 此时禁止出包。
+#
+# 判定方法: site-packages 下每个 *.dist-info/INSTALLER 记录安装者——
+# conda 装的写 "conda", pip/uv 装的写 "pip"/"uv"。若某包安装者是 pip/uv,
+# 而同名包在 conda-meta 里有条目, 即视为越界。
+##################################################
+check_pip_conda_overlap() {
+    local py="${MICROMAMBA_DIR}/envs/tsc_python/bin/python3"
+    if [[ ! -x "${py}" ]]; then
+        LOGWARNING "check_pip_conda_overlap: 找不到 ${py}, 跳过"
+        return 0
+    fi
+    local overlap
+    overlap="$("${py}" - <<'PYEOF' 2>/dev/null || true
+import json
+import pathlib
+import sys
+
+env = pathlib.Path(sys.prefix)
+site = env / "lib" / "python{}.{}".format(*sys.version_info[:2]) / "site-packages"
+
+conda_names = set()
+conda_meta = env / "conda-meta"
+if conda_meta.is_dir():
+    for meta in conda_meta.glob("*.json"):
+        try:
+            name = json.loads(meta.read_text()).get("name", "")
+        except Exception:
+            continue
+        conda_names.add(name.lower().replace("-", "_"))
+
+overlap = []
+if site.is_dir():
+    for dist_info in sorted(site.glob("*.dist-info")):
+        installer = dist_info / "INSTALLER"
+        if not installer.is_file():
+            continue
+        who = installer.read_text().strip().lower()
+        if who not in ("pip", "uv"):
+            continue
+        name = dist_info.name.split("-")[0].lower().replace("-", "_")
+        if name in conda_names:
+            overlap.append("{} (installer={})".format(name, who))
+
+print("\n".join(overlap))
+PYEOF
+)"
+    if [[ -n "${overlap}" ]]; then
+        LOGERROR "check_pip_conda_overlap: pip 层安装了 conda 已提供的包:"
+        LOGERROR "${overlap//$'\n'/ }"
+        LOGERROR "conda 已提供的一律由 conda 层提供, pip 只装 conda 没有的;"
+        LOGERROR "请在 Dockerfile 的 pip 过滤列表补充该项, 或改由 environment.yml 提供"
+        exit 1
+    fi
+    LOGSUCCESS "check_pip_conda_overlap"
+}
+
+##################################################
 # 组装 RPM 打包源
 #
 # 目录布局与目标机一致 (相对 /home/tsc):
@@ -114,7 +177,7 @@ prepare_payload() {
 # 把 ansible 的 base.yml 移出安装树, 单独暂存
 #
 # patch_ansible.py (%post) 会改写该文件注入解释器回退列表; 若它随普通文件进包,
-# rpm 会视其为被改动 (rpm -V 报错), 且升级时被覆盖丢失现场修补。
+# 升级时会被包内原版覆盖, 丢失现场修补 (rpm -V 也会持续报差异, 虽属预期但扰民)。
 # 改为在构建侧移出批量拷贝的安装树, 由 build.sh 以 %config(noreplace) 单独声明,
 # 升级即保留现场已改写版本。
 ##################################################
@@ -175,6 +238,7 @@ MICROMAMBA_VERSION="${MICROMAMBA_VERSION:-unknown}"
 mkdir -p "${OUTPUT_DIR}"
 
 check_glibc_baseline
+check_pip_conda_overlap
 prepare_payload
 stage_ansible_base
 write_build_info
