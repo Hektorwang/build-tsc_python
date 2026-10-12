@@ -55,8 +55,8 @@ pip 装包的许可证以各自 `*.dist-info/METADATA` 的 `License` 字段与�
 
 | 组件 | 许可证 | 来源 | 说明 |
 | --- | --- | --- | --- |
-| makeself | GPL-2.0-or-later | https://github.com/megastep/makeself | 构建时按锁定版本获取; 由其生成的自解压安装包经作者声明不受 GPL 约束 |
 | jq | MIT | https://github.com/jqlang/jq | 构建时按锁定版本获取, 仅在构建容器内使用 |
+| nfpm | MIT | https://nfpm.goreleaser.com | 由打包机提供, 仅用于组装 RPM |
 
 本仓库自身代码以 **GPL-3.0-or-later** 发布, 见仓库根目录 `LICENSE`.
 

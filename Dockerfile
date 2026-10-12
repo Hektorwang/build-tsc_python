@@ -4,10 +4,10 @@
 # REPO_LOCAL 必须经 --build-arg 或 build.conf 的 repo_local 键提供 (EL7 yum 源, 见 README)
 FROM centos:7.9.2009 AS builder
 
-ARG MICROMAMBA_DIR=/home/tsc/tsc_tools/micromamba
+ARG MICROMAMBA_DIR=/home/tsc/tsc_python
 ARG ENV_NAME=tsc_python
 ARG REPO_LOCAL=
-ARG MAMBA_ROOT_PREFIX=/home/tsc/tsc_tools/micromamba
+ARG MAMBA_ROOT_PREFIX=/home/tsc/tsc_python
 
 # 将构建参数导出为环境变量，供容器内 build.sh 使用
 ENV MAMBA_ROOT_PREFIX=${MAMBA_ROOT_PREFIX}
@@ -32,6 +32,8 @@ RUN case $(arch) in \
     && ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && echo "Asia/Shanghai" > /etc/timezone
 
 # jq 使用 build.sh 按需下载并缓存的静态二进制 (files/tmp/), 不依赖 EPEL
+# 注意: 两个架构的 jq 文件都必须存在 (build.sh 的 ensure_jq 会同时下载 x86_64 与 aarch64),
+# 请始终通过 build.sh 触发构建; 直接 `docker build` 而 files/tmp 未备齐时会因 COPY 源缺失而失败。
 COPY ./files/tmp/jq-x86_64 ./files/tmp/jq-aarch64 /tmp/
 RUN case $(arch) in \
         x86_64)  install -m 0755 /tmp/jq-x86_64  /usr/local/bin/jq ;; \

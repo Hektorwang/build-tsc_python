@@ -139,7 +139,7 @@ ansible <commands>
 #### 批量测试机器 SSH 连通性:
 
 ```bash
-ansible -i /home/tsc/tsc_tools/ansible/hosts all -m ping
+ansible -i /home/tsc/tsc_python/ansible/hosts all -m ping
 # 参数选项:
 # all: 指代 inventory 文件中配置的所有机器. 等效写法: '*' 或 "*" 或 \*
 # -m ping: 指定使用 ping 模块
@@ -152,7 +152,7 @@ ansible -i /home/tsc/tsc_tools/ansible/hosts all -m ping
 #### 批量查看机器 CPU 架构:
 
 ```bash
-ansible -i /home/tsc/tsc_tools/ansible/hosts r1 -m shell -a "arch"
+ansible -i /home/tsc/tsc_python/ansible/hosts r1 -m shell -a "arch"
 # 参数选项:
 # r1: 指代 r1 机器组
 # -m shell: 指定使用 shell 模块
@@ -162,7 +162,7 @@ ansible -i /home/tsc/tsc_tools/ansible/hosts r1 -m shell -a "arch"
 #### 批量查看机器最近 15 分钟内的平均负载:
 
 ```bash
-ansible -i /home/tsc/tsc_tools/ansible/hosts 192.168.1.11,192.168.1.13 -m shell -a "uptime | awk '{print \$NF}'"
+ansible -i /home/tsc/tsc_python/ansible/hosts 192.168.1.11,192.168.1.13 -m shell -a "uptime | awk '{print \$NF}'"
 
 # 参数选项:
 # 192.168.1.11,192.168.1.13: 这里指定了两台主机, 使用逗号分隔
@@ -174,7 +174,7 @@ ansible -i /home/tsc/tsc_tools/ansible/hosts 192.168.1.11,192.168.1.13 -m shell 
 #### 查看单机平均负载信息:
 
 ```bash
-ansible /home/tsc/tsc_tools/ansible/hosts 192.168.1.11 -m shell -a "uptime"
+ansible /home/tsc/tsc_python/ansible/hosts 192.168.1.11 -m shell -a "uptime"
 ```
 
 批量执行脚本:
@@ -186,7 +186,7 @@ uptime
 ```
 
 ```bash
-ansible /home/tsc/tsc_tools/ansible/hosts sysa,r4 -m script -a '/tmp/1.sh'
+ansible /home/tsc/tsc_python/ansible/hosts sysa,r4 -m script -a '/tmp/1.sh'
 
 # 参数选项:
 # sysa,r4: 这里指定了两个机器组, 使用逗号分隔
@@ -203,7 +203,7 @@ ansible /home/tsc/tsc_tools/ansible/hosts sysa,r4 -m script -a '/tmp/1.sh'
 #### 从控制节点拷贝文件到远程主机:
 
 ```bash
-ansible -i /home/tsc/tsc_tools/ansible/hosts r4 -m copy -a "src=/root/anaconda-ks.cfg dest=/tmp/"
+ansible -i /home/tsc/tsc_python/ansible/hosts r4 -m copy -a "src=/root/anaconda-ks.cfg dest=/tmp/"
 # 参数选项:
 # r4: 指代角色4机器组
 
@@ -214,7 +214,7 @@ ansible -i /home/tsc/tsc_tools/ansible/hosts r4 -m copy -a "src=/root/anaconda-k
 #### 从控制节点拷贝文件到远程主机:
 
 ```bash
-ansible -i /home/tsc/tsc_tools/ansible/hosts 192.168.1.12,192.168.1.17 -m copy -a "src=/etc/fstab dest=/tmp/fstab_backup mode=0644 owner=root group=root"
+ansible -i /home/tsc/tsc_python/ansible/hosts 192.168.1.12,192.168.1.17 -m copy -a "src=/etc/fstab dest=/tmp/fstab_backup mode=0644 owner=root group=root"
 # 参数选项:
 # 92.168.1.12,192.168.1.17: 这里指定了两台主机, 使用逗号分隔
 
@@ -225,7 +225,7 @@ ansible -i /home/tsc/tsc_tools/ansible/hosts 192.168.1.12,192.168.1.17 -m copy -
 #### 指定文件内容在远程主机上创建文件:
 
 ```bash
-ansible -i /home/tsc/tsc_tools/ansible/hosts '*' -m copy -a "content='* * * * * root /sbin/ntpdate 172.17.1.100' dest=/etc/cron.d/ntpdate_cron"
+ansible -i /home/tsc/tsc_python/ansible/hosts '*' -m copy -a "content='* * * * * root /sbin/ntpdate 172.17.1.100' dest=/etc/cron.d/ntpdate_cron"
 # 参数选项:
 # '*': 指代 inventory 文件中配置的所有机器. 等效写法: all 或 "*" 或 \*
 
@@ -236,7 +236,7 @@ ansible -i /home/tsc/tsc_tools/ansible/hosts '*' -m copy -a "content='* * * * * 
 #### 从远程主机拷贝文件到控制节点:
 
 ```bash
-ansible -i /home/tsc/tsc_tools/ansible/hosts \* -m fetch -a 'src=/etc/hosts dest=/tmp/{{ inventory_hostname }}_hosts flat=yes'
+ansible -i /home/tsc/tsc_python/ansible/hosts \* -m fetch -a 'src=/etc/hosts dest=/tmp/{{ inventory_hostname }}_hosts flat=yes'
 # 参数选项:
 # \*: 指代 inventory 文件中配置的所有机器. 等效写法: all 或 "*" 或 '*'
 # flat=yes 表示不会复制文件的远程目录结构, 只将文件本身保存到用户指定的目录

@@ -1,0 +1,193 @@
+#!/bin/bash
+#
+# tsc_python RPM ---- %post (安装/升级后配置)
+#
+# 执行时机: 包文件已落盘之后
+#   $1 == 1  全新安装
+#   $1 >= 2  升级 (rpm -U / 重装): 步骤与全新安装一致, 且各步骤均幂等
+#
+# 职责 (沿用 makeself 时代 install.sh 的 _install 行为, 去掉解压/拷贝部分——
+# 这些已由 rpm 完成):
+#   1. 补模块 run.sh 可执行位
+#   2. 准备 /var/log/tsc 日志目录 (ansible.cfg: log_path=/var/log/tsc/ansible.log)
+#   3. 部署 profile: /home/tsc/tsc_profile 公共入口 + 本包 drop-in (带 hash 记入清单)
+#   4. 重建 rag.md (调用 tsc_tools 的 gen_rag.sh; 须在 profile 之后, 使其能取到
+#      TSC_MODULES_DIR 从而覆盖本包模块)
+#   5. 给 ansible 的 INTERPRETER_PYTHON_FALLBACK 插入本环境 python3 (patch_ansible.py)
+##################################################
+# shellcheck disable=SC1090,SC1091,SC2034
+set -o nounset
+set -o pipefail
+set +o posix
+shopt -s nullglob
+
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+
+if [[ -z "${BASH_VERSION:-}" ]]; then
+    echo "ERROR: /bin/sh is not bash, tsc_python requires bash >= 4.0." >&2
+    exit 1
+fi
+
+__LOG_TAG="tsc_python-post"
+
+# >>> INJECT packaging/rpm/lib_min.sh
+
+readonly TSC_HOME_DIR="/home/tsc"
+readonly TSC_TOOLS_DIR="${TSC_HOME_DIR}/tsc_tools"
+readonly ENV_ROOT="${TSC_HOME_DIR}/tsc_python"
+readonly ENV_DIR="${ENV_ROOT}/envs/tsc_python"
+readonly PYTHON_BIN="${ENV_DIR}/bin/python3"
+readonly PATCH_SCRIPT="${ENV_ROOT}/patch_ansible.py"
+# profile 相关: 源来自包内 ENV_ROOT, 目标是 /home/tsc 下的公共基础设施
+readonly SOURCE_TSC_PROFILE="${ENV_ROOT}/tsc_profile"
+readonly SOURCE_DROPIN="${ENV_ROOT}/profile"
+readonly TSC_PROFILE_D_DIR="${TSC_HOME_DIR}/tsc_profile.d"
+readonly DEST_TSC_PROFILE="${TSC_HOME_DIR}/tsc_profile"
+readonly DROPIN_FILE="${TSC_PROFILE_D_DIR}/01-tsc_python-profile.sh"
+# 旧形态/旧命名留存的要清掉, 否则同一环境被加载两次 (空格分隔的多个候选名):
+#   tsc_python.sh            drop-in 化之前本包把片段直接放在这个名字下
+#   1-tsc_python-profile.sh  单数字前缀时期 (本次改名 01- 之前的名字), 升级上来需清理, 避免与新名并存
+readonly STALE_DROPIN="${TSC_PROFILE_D_DIR}/tsc_python.sh ${TSC_PROFILE_D_DIR}/1-tsc_python-profile.sh"
+readonly MANIFEST_FILE="${ENV_ROOT}/.installed_manifest"
+readonly LOG_DIR="/var/log/tsc"
+
+if [[ ! -x "${PYTHON_BIN}" ]]; then
+    LOGERROR "${PYTHON_BIN} 缺失或不可执行, 包内容不完整"
+    exit 1
+fi
+
+##################################################
+# 取文件 sha256, 供卸载侧判断"是否仍是本包部署的版本"
+# 参数:
+#   $1 - 文件路径
+# 输出:
+#   十六进制摘要; 文件不存在或没有 sha256sum 时输出空
+##################################################
+file_sha256() {
+    local file="$1"
+    [[ -f "${file}" ]] || return 1
+    if command -v sha256sum &>/dev/null; then
+        sha256sum <"${file}" | awk '{print $1}'
+    fi
+    return 0
+}
+
+##################################################
+# 判断某个路径是否已被某个已安装包认领 (避免动别人的文件)
+# 返回:
+#   0 - 有包认领
+#   1 - 无人认领 (或是第一次装, 环境里连 rpm 都没有)
+##################################################
+rpm_owns() {
+    local target="$1"
+    command -v rpm &>/dev/null || return 1
+    rpm -qf "${target}" &>/dev/null
+}
+
+##################################################
+# 部署 profile: 公共入口 (缺失才建) + 本包 drop-in (每次刷新)
+#
+# 与 tsc_tools 2.1.7+ 的分工一致:
+#   /home/tsc/tsc_profile                  公共入口, 只负责 source tsc_profile.d/*.sh
+#                                          (谁先装谁创建, 所有工具卸载都不删)
+#   tsc_profile.d/0-tsc_tools-profile      tsc_tools 自己的 drop-in
+#   tsc_profile.d/01-tsc_python-profile.sh 本包 drop-in
+#   数字前缀决定加载顺序: 先 PATH/modules 再环境, 两侧互不依赖
+#
+# drop-in 是 %post 部署的衍生文件 (不在 rpm 文件清单里), 因此把"路径 + sha256"
+# 写进 .installed_manifest, 由 %preun 校验一致后才删——用户改过就不删。
+##################################################
+deploy_profile() {
+    mkdir -p "${TSC_PROFILE_D_DIR}"
+
+    if [[ ! -e "${DEST_TSC_PROFILE}" ]]; then
+        \cp "${SOURCE_TSC_PROFILE}" "${DEST_TSC_PROFILE}"
+        LOGSUCCESS "Created ${DEST_TSC_PROFILE} (公共入口)"
+    else
+        LOGINFO "${DEST_TSC_PROFILE} already exists, keep it"
+    fi
+
+    # 旧形态/旧命名残留, 不清会导致环境被加载两次 (STALE_DROPIN 为空格分隔的多个候选名)
+    local stale
+    for stale in ${STALE_DROPIN}; do
+        [[ -e "${stale}" ]] || continue
+        if rpm_owns "${stale}"; then
+            LOGWARNING "${stale} 由 $(rpm -qf "${stale}" | head -n1) 持有, 留给其卸载处理"
+        else
+            rm -f "${stale}" && LOGWARNING "已删除旧形态 drop-in ${stale}"
+        fi
+    done
+
+    \cp "${SOURCE_DROPIN}" "${DROPIN_FILE}"
+    LOGSUCCESS "Deployed drop-in ${DROPIN_FILE}"
+
+    # 清单由本函数独占维护: FILE:<path>:<sha256>
+    local sum
+    sum="$(file_sha256 "${DROPIN_FILE}")"
+    if [[ -n "${sum}" ]]; then
+        : >"${MANIFEST_FILE}"
+        echo "FILE:${DROPIN_FILE}:${sum}" >>"${MANIFEST_FILE}"
+    else
+        LOGWARNING "无法计算 ${DROPIN_FILE} 的 sha256, 卸载时不会自动回收该文件"
+    fi
+}
+
+##################################################
+# 在 ansible 的 INTERPRETER_PYTHON_FALLBACK 列表中插入本环境 python3
+# 幂等 (脚本内已判重), 失败不阻断安装, 仅告警
+##################################################
+patch_ansible() {
+    if [[ ! -f "${PATCH_SCRIPT}" ]]; then
+        LOGWARNING "${PATCH_SCRIPT} not found, skip ansible interpreter patch"
+        return 0
+    fi
+    if "${PYTHON_BIN}" "${PATCH_SCRIPT}"; then
+        LOGSUCCESS "ansible interpreter fallback patched"
+    else
+        LOGWARNING "patch_ansible.py exited non-zero: ansible 可能无法自动发现 tsc_python, 不影响安装完成"
+    fi
+    return 0
+}
+
+##################################################
+# 主流程
+##################################################
+LOGINFO "tsc_python %post start (arg=\$1:${1:-unset})"
+
+# 1. 模块 run.sh 补可执行位 (防打包/拷贝过程丢失), 保证 tsc 入口可调用
+chmod 0755 "${ENV_ROOT}"/modules/*/run.sh 2>/dev/null ||
+    LOGWARNING "no module run.sh found, skip executable bit fix"
+
+# 2. 日志目录 (不属于包内容, 卸载时保留运行期日志)
+mkdir -p "${LOG_DIR}"
+chmod 0755 "${LOG_DIR}"
+if id tsc &>/dev/null; then
+    chown tsc: "${LOG_DIR}" ||
+        LOGWARNING "chown tsc ${LOG_DIR} 失败, 以 tsc 用户运行 ansible 时日志可能不可写"
+fi
+
+# 3. profile: 公共入口 + 本包 drop-in (须早于 gen_rag, 让它取到 TSC_MODULES_DIR)
+deploy_profile
+
+# 4. 重建 rag.md (生成器由 tsc_tools 随包提供), 使 tsc 命令帮助与 RAG 文档覆盖本包模块
+#    tsc_tools >= 2.1.7 的 gen_rag.sh 自己 source tsc_profile 读 TSC_MODULES_DIR,
+#    老版本则按自己 modules 目录生成, 两种情形都不需要本歩额外喂变量
+if [[ -x "${TSC_TOOLS_DIR}/gen_rag.sh" ]]; then
+    "${TSC_TOOLS_DIR}"/gen_rag.sh || LOGWARNING "gen_rag.sh 执行失败, rag.md 未更新"
+else
+    LOGWARNING "未找到 ${TSC_TOOLS_DIR}/gen_rag.sh, 跳过 rag.md 更新 (需安装 tsc_tools)"
+fi
+
+# 5. ansible 解释器补丁
+patch_ansible
+
+echo "################################################################################
+Usage:
+    # activate full tsc environment (loads this package's drop-in)
+    source /home/tsc/tsc_profile
+    # or activate this package's environment alone
+    source /home/tsc/tsc_profile.d/01-tsc_python-profile.sh
+################################################################################"
+
+LOGSUCCESS "tsc_python %post done"
+exit 0

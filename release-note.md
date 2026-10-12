@@ -1,5 +1,25 @@
 # tsc_python
 
+## Version=0.13.0
+
+Date=20261012
+
+1. refactor(build): 制成品由 makeself 自解压包改为 RPM, 产出 `release/tsc_python-<version>-<release>.<arch>.rpm` (`version` 取自本文件 `Version=`, `release` 为构建日期); 打包脚本集中到 `packaging/rpm/`
+2. refactor(build): 容器内 `files/pack.sh` 不再打自解压包, 改为组装安装树 `output/<arch>/payload/` (镜像 `/home/tsc` 布局) 并生成 `build-info.json`; RPM 由宿主机 `build.sh` 用 nfpm 打包——nfpm 不必进入构建容器, 且宿主机可直接对产物做 `rpm -q` 自检
+3. feat(build): 打包前检查打包机是否提供 `nfpm` (默认 `/bin/nfpm`, 可用 `NFPM_BIN` 覆盖), 缺失时明确报错退出; 四段 scriptlet 逐个 `bash -n` 语法自检; 渲染完整性断言 (注入文件存在、`@ARCH@` 已替换)
+4. feat(build): 产物自检包含包信息/依赖/文件数/关键文件是否齐全 (profile 源与公共入口模板、micromamba、环境 python3 与 ansible、smoke_test.sh、ansible.cfg、模块 run.sh)/关键文件可执行位/四段 scriptlet 是否写入
+5. feat(rpm): `%pre` 做环境准入校验 (root 权限、CPU 架构须与本包架构一致且在 `.supported_env.conf` 白名单内、glibc >= 2.17), 不通过则中止安装, 不留下半成品文件——原先自解压包是先解包再校验
+6. feat(rpm): `%pre` 发现已有非 RPM (自解压包时代) 安装时, 先把 `/home/tsc/tsc_tools/micromamba` 轮转为 `micromamba.bak.<时间戳>`, 避免两套文件混装; 升级 (rpm -U) 时该目录由本包旧版本持有, 原样保留
+7. feat(rpm): `%post` 承接原 `install.sh` 的收尾动作 (模块 `run.sh` 可执行位、`/var/log/tsc` 日志目录、`gen_rag.sh` 重建 `rag.md`、`patch_ansible.py` 打解释器补丁), 各步骤幂等; `%preun` 仅在真卸载 (`$1==0`) 时回收, 升级交由新包 `%post` 重建
+8. refactor(path): 环境本体从 `/home/tsc/tsc_tools/micromamba` 迁到 `/home/tsc/tsc_python`——不再是"塞在 tsc_tools 下的一个子目录", 而是与 tsc_tools 平级的独立组件; 随包文档/工具与 `build-info.json` 同步改为 `/home/tsc/tsc_python/`, 自解压包时代的旧目录仍由 `%pre` 轮转
+9. feat(rpm): profile 改为与 tsc_tools 同构的 drop-in 模型——`/home/tsc/tsc_profile` 是公共入口 (只 source `/home/tsc/tsc_profile.d/*.sh`, 谁先装谁创建, 所有工具卸载都不删), 本包片段由 `%post` 部署为 `tsc_profile.d/01-tsc_python-profile.sh` (源为随包的 `/home/tsc/tsc_python/profile`), 数字前缀决定加载顺序 (`0-tsc_tools-profile` 在前); 卸载由 `%preun` 按 `<ENV_ROOT>/.installed_manifest` 里的 sha256 校验回收 (片段被改过则保留), 目录壳由新增的 `%postun` 清理
+10. feat(profile): drop-in 增加 `TSC_MODULES_DIR` 声明——tsc 与 `gen_rag.sh` 靠该变量 (冒号分隔多目录) 发现模块, 本包因此自建声明, 使单独安装 tsc_python 时 `tsc` 也能看到 `tsc_python_*` 模块; 已由 `0-tsc_tools-profile` 声明过同一目录则跳过, 避免重复项让 `gen_rag.sh` 把同一份 readme 收录两次
+11. fix(rpm): `%post` 清理早期形态的 drop-in `tsc_python.sh` (无包认领时删除), 避免升级后同一份环境被加载两次; `%post` 顺序调整为先部署 profile 再跑 `gen_rag.sh`, 使后者能取到 `TSC_MODULES_DIR`
+12. feat(rpm): `%pre` 新增 `rotate_legacy_profile`——自解压包时代留下的 `/home/tsc/tsc_python_profile` 及其在 `tsc_profile` 里的旧 `source` 行已过时, 与旧环境目录一样按"`rpm -qf` 认领则跳过"的规则轮转/摘行, 避免两份 profile 并存说不清哪份生效
+13. chore: 构建依赖与文档去掉 makeself (不再参与打包); 随包文档与工具路径改用新环境根目录 `/home/tsc/tsc_python/`
+14. feat(rpm): RPM 新增硬依赖 `tsc_tools >= 2.1.6` (见 `packaging/rpm/nfpm.yaml.tmpl` 的 `depends`)——`/home/tsc/tsc_profile` 加载 `tsc_profile.d/*.sh` 的加载器由该版本起提供; 低于此版本时 `%post` 虽会 bootstrap 一段加载块兜底, 但建议直接装对齐版本
+15. fix(pack): 环境内二进制 (`tsc_python/bin/*`、`envs/tsc_python/bin/*`) 在打包时归一化到 0755——构建容器 umask 002 会让它们带上组写位 (0775), 共享目录 /home/tsc 下 root 所有的二进制保持 0755 更干净, 也避免产物自检因权限非 0755 而失败
+
 ## Version=0.12.0
 
 Date=20261004

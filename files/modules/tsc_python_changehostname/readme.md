@@ -17,7 +17,7 @@ usage: tsc --tsc_python_changehostname
 
 ## 使用说明
 
-配置 `/home/tsc/tsc_tools/ansible/hosts`, 将各主机需修改的主机名设置为对应主机的 `hostname` 变量.  
+配置 `/home/tsc/tsc_python/ansible/hosts`, 将各主机需修改的主机名设置为对应主机的 `hostname` 变量.  
 如要把 `192.168.1.1` 主机名设置为 `my1_1`, 则在 `hosts` 段中设置为:
 
 ```ini
@@ -29,5 +29,5 @@ usage: tsc --tsc_python_changehostname
 
 ```bash
 # 执行批量修改
-ansible-playbook -i /home/tsc/tsc_tools/ansible/hosts /home/tsc/tsc_tools/ansible/roles/changenhostame.yml
+ansible-playbook -i /home/tsc/tsc_python/ansible/hosts /home/tsc/tsc_python/ansible/roles/changenhostame.yml
 ```

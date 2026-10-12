@@ -1,14 +1,18 @@
 # 构建上下文只需要 Dockerfile 和 files/
 # 注意: files/tmp/ 必须保留在上下文中 (micromamba/jq 缓存与生成的 environment.yml/condarc/pip.conf 会被 COPY)
+# release/ 与 output/ 里可能有 GB 级产物, 必须排除, 否则每次构建都要传给 docker daemon
 .git
 .vscode
 log
 output
+release
+stage
+packaging
 lib
 func
 note.md
 README.md
 README.zh_CN.md
-build-local.sh
+README-dev.md
 build.conf
 build.conf.example

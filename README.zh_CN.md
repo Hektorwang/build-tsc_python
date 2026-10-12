@@ -5,28 +5,100 @@
 ## 说明
 
 1. 用于构建 tsc 标准化发布的 python 发布包.
-2. 集成 `python3.13.12`（可通过参数覆盖版本）, 使用 `micromamba` 管理环境, 通过 `makeself` 打包为自解压安装包.
-3. 每 CPU 架构一个安装包 (`x86_64` / `aarch64`), 环境统一在 CentOS 7.9 (glibc 2.17 基线) 容器中构建, 兼容所有 glibc >= 2.17 的 Linux 发行版.
+2. 集成 Python 3.13（具体版本来自 `build.conf` 的 `python_version`, 也可用 `--python-version` 覆盖）, 使用 `micromamba` 管理环境, 通过 `nfpm` 打包为 RPM 包.
+3. 每 CPU 架构一个 RPM 包 (`x86_64` / `aarch64`), 环境统一在 CentOS 7.9 (glibc 2.17 基线) 容器中构建, 兼容所有 glibc >= 2.17 的 Linux 发行版.
+
+## 安装
+
+制成品为单个 RPM 包: `tsc_python-<version>-<release>.<arch>.rpm`
+(`<version>` 取自 `release-note.md` 的 `Version=`, `<release>` 为构建日期).
+
+```bash
+# 安装
+rpm -ivh tsc_python-<version>-<release>.<arch>.rpm
+
+# 升级 / 重装 (带旧版本时用它, 会走升级路径)
+rpm -Uvh tsc_python-<version>-<release>.<arch>.rpm
+
+# 查询
+rpm -q tsc_python
+rpm -ql tsc_python
+
+# 卸载
+rpm -e tsc_python
+```
+
+`%pre` 在写入任何文件**之前**校验 `root` 权限、CPU 架构(必须与本包架构一致,
+见 `.supported_env.conf`)与 glibc 基线 (2.17); 不通过则中止安装, 不留下半成品文件.
+
+`%post` 负责 rpm 本身做不到的收尾: 补模块 `run.sh` 可执行位、创建 `/var/log/tsc`
+(ansible 日志目录)、部署 profile（先补建公共入口，再放本包 drop-in）、调用 `tsc_tools`
+的 `gen_rag.sh` 重建 `rag.md`、给 ansible 的 `INTERPRETER_PYTHON_FALLBACK` 列表插入本环境
+python3。所有步骤幂等。
+
+环境通过 profile **片段 (drop-in)** 暴露，与 `tsc_tools >= 2.1.7` 的分工一致：
+
+| 路径 | 归属 | 卸载是否删除 |
+| --- | --- | --- |
+| `/home/tsc/tsc_profile` | 公共入口，谁先装谁建，只负责 source `tsc_profile.d/*.sh` | 否（公共基础设施） |
+| `/home/tsc/tsc_profile.d/0-tsc_tools-profile` | tsc_tools | 是，由 tsc_tools |
+| `/home/tsc/tsc_profile.d/01-tsc_python-profile.sh`（本包） | tsc_python | 是，由 `%preun`（带 hash 校验，被改过则保留） |
+
+数字前缀决定加载顺序（先 PATH/模块目录，再环境）；片段里自带 `TSC_MODULES_DIR` 声明，
+是为了在没装 tsc_tools 时 `tsc` 也能发现 `tsc_python_*` 模块——若 `0-tsc_tools-profile`
+已声明过同一目录则跳过，避免重复项让 `gen_rag.sh` 把同一份 readme 收录两次。
+
+**运行期依赖**：本 RPM 声明硬依赖 `tsc_tools >= 2.1.6`（首次在 `tsc_profile` 中提供 drop-in 加载器的版本）。
+目标机请先安装 `tsc_tools`；若 `tsc_tools` 过旧，`%post` 会 bootstrap 一段加载块兜底，但建议直接装对齐版本。
+
+```bash
+source /home/tsc/tsc_profile                           # 完整 tsc 环境（加载全部 drop-in）
+source /home/tsc/tsc_profile.d/01-tsc_python-profile.sh # 只加载本包环境
+```
+
+卸载时 `%preun` 按 `.installed_manifest` 记录的 sha256 校验后删除本包 drop-in，
+`%postun` 清理随之空掉的本包目录壳，包内文件由 rpm 自行删除。有意保留：`/home/tsc/tsc_profile`、
+`/home/tsc/tsc_profile.d`（含现场自定义片段）、`/var/log/tsc` 及运行期日志。
+
+若目标机上已有 RPM 之前(自解压包时代)安装的 `tsc_python`, `%pre` 会先把
+`/home/tsc/tsc_tools/micromamba` 轮转为 `micromamba.bak.<时间戳>`, 避免两套文件混在一起;
+同时把已过时的 `/home/tsc/tsc_python_profile` 轮转为 `.pre-rpm.<时间戳>`, 并摘掉
+`tsc_profile` 里那行旧的 source——确认新包可用后自行清理这些备份.
 
 ## 目录结构
 
 ```text
 .
-├── build.sh                # 构建入口脚本
+├── build.sh                # 构建入口脚本 (容器构建 -> 安装树 -> nfpm 打 RPM)
 ├── Dockerfile              # 唯一构建镜像 (CentOS 7.9, glibc 2.17 基线)
 ├── func                    # 日志等公共函数库
+├── packaging/rpm/
+│   ├── nfpm.yaml.tmpl      # nfpm 包定义模板
+│   ├── preinstall.sh.tmpl  # %pre  (环境准入 + 旧目录轮转, 需注入)
+│   ├── postinstall.sh.tmpl # %post (模块权限、rag.md、ansible 补丁、profile)
+│   ├── preremove.sh        # %preun (按 hash 清单回收 drop-in, 仅 POSIX 语法, 恒返回 0)
+│   ├── postremove.sh       # %postun (清理空目录壳)
+│   ├── env_check.sh        # 环境检测与准入校验 (内联进 %pre)
+│   └── lib_min.sh          # scriptlet 用的最小 LOG* 运行时
+├── .supported_env.conf     # 受支持架构白名单 / glibc 基线
 ├── release-note.md         # 版本发布记录 (随包分发)
 ├── THIRD_PARTY_NOTICES.md  # 第三方组件声明 (英文)
 ├── THIRD_PARTY_NOTICES.zh_CN.md
 ├── files/
-│   ├── pack.sh             # 容器内打包脚本（makeself、checksum、元数据）
-│   ├── install.sh          # 安装包内的安装脚本
+│   ├── pack.sh             # 容器内打包脚本（组装安装树、元数据）
+│   ├── ansible/            # ansible.cfg / hosts / roles (随包分发)
+│   ├── modules/            # tsc_python_* 插件模块 (随包分发)
 │   ├── environment.yml     # conda 环境定义（python 版本、系统库）
 │   ├── requirements.in     # pip 依赖声明
 │   ├── requirements.txt    # pip 依赖清单
+│   ├── tsc_profile         # profile 公共入口模板 (%post 部署, 不随 tsc_profile.d 分发)
+│   ├── profile             # 本包 drop-in 源 (%post 部署为 01-tsc_python-profile.sh)
+│   ├── smoke_test.sh       # 安装后冒烟测试 (随包分发)
+│   ├── patch_ansible.py    # ansible 解释器补丁 (随包分发)
 │   ├── tmp/                # 构建临时文件（micromamba/jq 缓存、生成的 environment.yml/condarc/pip.conf）
 │   └── ...
-└── output/                 # 构建产物输出目录
+├── output/                 # 中间产物 (各架构的安装树)
+└── release/                # RPM 产物目录
 ```
 
 ## 构建前提
@@ -44,6 +116,7 @@
 
 - Docker 已安装并运行; `build.sh` 以 `--pull=false` 构建, 构建机本地必须已具备**对应架构**的 `centos:7.9.2009` 镜像
 - 本机架构即为目标架构（x86_64 构建 x86_64 包, aarch64 构建 aarch64 包）
+- RPM 打包步骤需要打包机提供 `nfpm` (默认取 `/bin/nfpm`, 亦可用 `NFPM_BIN=/path/to/nfpm ./build.sh` 指定)
 
 ### 固化保存 EL7 构建镜像（强烈建议）
 
@@ -100,7 +173,7 @@ bash build.sh
 [build]
 micromamba_ver = 2.5.0
 repo_local     = http://192.168.1.100
-python_version = 3.13.12
+python_version = 3.13.16
 pypi_index     = https://mirrors.cernet.edu.cn/pypi/web/simple
 conda_forge    = https://mirrors.cernet.edu.cn/anaconda/cloud/conda-forge
 ```
@@ -111,7 +184,7 @@ conda_forge    = https://mirrors.cernet.edu.cn/anaconda/cloud/conda-forge
 bash build.sh --python-version 3.12.11
 ```
 
-### 第三方组件缓存（micromamba / jq / makeself）
+### 第三方组件缓存（micromamba / jq）
 
 第三方构建组件全部采用 **缓存优先, 按需下载** 模式: 本地已有缓存则直接使用, 缺失或校验不符时从上游按锁定版本下载.
 
@@ -119,7 +192,6 @@ bash build.sh --python-version 3.12.11
 | --- | --- | --- |
 | micromamba | `files/tmp/micromamba` (+ `.version`) | micro.mamba.pm |
 | jq (双架构静态二进制) | `files/tmp/jq-x86_64` / `jq-aarch64` (带 sha256 校验) | github.com/jqlang/jq |
-| makeself | `files/makeself.sh` / `makeself-header.sh` | github.com/megastep/makeself |
 
 离线构建机可从有外网的机器手动放置, 先在有外网的机器上下载（以 2.5.0 / x86_64 为例, aarch64 用 `linux-aarch64`）:
 
@@ -139,18 +211,20 @@ files/tmp/micromamba.version  # 文本文件, 内容如: 2.5.0-x86_64
 ```bash
 rm -f files/tmp/micromamba files/tmp/micromamba.version
 rm -f files/tmp/jq-x86_64 files/tmp/jq-aarch64
-rm -f files/makeself.sh files/makeself-header.sh
 ```
 
 ### 构建产物
 
-产物输出到 `output/<arch>/`, 每次构建包含三个文件：
+容器内 `files/pack.sh` 把安装树写到 `output/<arch>/payload/`, 宿主机 `build.sh` 再打成 RPM 输出到 `release/`:
 
 ```bash
-tsc_python-<version>-<arch>-<date>.sh        # makeself 自解压安装包
-tsc_python-<version>-<arch>-<date>.sh.sha256 # SHA256 校验文件
-tsc_python-<version>-<arch>-<date>.sh.json   # 构建元数据（版本、时间、架构、glibc 基线等）
+tsc_python-<version>-<release>.<arch>.rpm        # RPM 包
+tsc_python-<version>-<release>.<arch>.rpm.sha256 # SHA256 校验文件
 ```
+
+`<version>` 取自 `release-note.md` 的 `Version=`, `<release>` 为构建日期 (`YYYYMMDD`).
+构建元数据 (python / micromamba 版本、glibc 基线) 随包分发在
+`/home/tsc/tsc_python/build-info.json`.
 
 ### 构建日志
 
@@ -162,11 +236,11 @@ tsc_python-<version>-<arch>-<date>.sh.json   # 构建元数据（版本、时间
 
 `files/requirements.txt` 是**安装清单**——构建执行 `uv pip install -r` 的对象. 它是 (或将是) 生成物, 不要在里面写流程性注释.
 
-当前过渡态: `requirements.txt` 手工维护且未锁版本——修改 `requirements.in` 后需同步更新 `requirements.txt`.
+`requirements.txt` 是生成的**已锁定**安装清单 (`uv pip compile` 产出的 `==` 固定版本); 不要手工改版本号——改 `requirements.in` 后重新生成即可.
 
-### 锁定版本（计划中）
+### 锁定 / 重新生成版本
 
-包稳定后锁定依赖集:
+依赖集已锁定进 `requirements.txt` (`==` 固定版本). 当 `requirements.in` 变动时重新生成:
 
 ```bash
 # 在仓库根目录执行 (需 pip-tools: pip install pip-tools)
@@ -192,7 +266,7 @@ uv pip compile files/requirements.in -o files/requirements.txt --no-header --no-
 | 其他 glibc >= 2.17 的 Linux  | 理论兼容, 未测试不承诺 (如 Debian/Arch/SUSE) |
 | Alpine (musl) / FreeBSD      | 不支持 (无 glibc)                            |
 
-以上支持项共用同一个安装包 `tsc_python-<version>-<arch>-<date>.sh`, 按架构选择; 安装器会自动校验目标机架构.
+以上支持项按架构选用同一个 RPM 包 (`x86_64` / `aarch64`); `%pre` 会在写入任何文件前校验目标机架构与 glibc 基线.
 
 ## 内网部署说明
 
@@ -243,6 +317,6 @@ bash build.sh --repo-local http://<your-internal-repo-server>
 本项目自身代码以 **GPL-3.0-or-later** 发布, 见根目录 [LICENSE](LICENSE).
 
 仓库引用的第三方组件遵循其各自许可证, 详见 [THIRD_PARTY_NOTICES.zh_CN.md](THIRD_PARTY_NOTICES.zh_CN.md) (英文版: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)):
-makeself 脚本 (GPL-2.0-or-later, 其生成的自解压安装包经作者声明不受 GPL 约束) 与 jq 静态二进制 (MIT) 均在构建时按锁定版本获取, 不随本仓库分发.
+micromamba 二进制 (BSD-3-Clause) 与 jq 静态二进制 (MIT) 均在构建时按锁定版本获取, 不随本仓库分发.
 
-由本工具产出的 tsc_python 安装包仅面向内部环境分发.
+由本工具产出的 tsc_python RPM 包仅面向内部环境分发.

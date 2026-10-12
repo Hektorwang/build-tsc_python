@@ -29,7 +29,7 @@ usage: tsc --tsc_python_batch_user_manager
 
 ## 使用说明
 
-配置 `/home/tsc/tsc_tools/ansible/hosts`, 将目标机信息写入 `hosts` 段, 并在 `[all:vars]` 段配置业务用户:
+配置 `/home/tsc/tsc_python/ansible/hosts`, 将目标机信息写入 `hosts` 段, 并在 `[all:vars]` 段配置业务用户:
 
 ```ini
 [hosts] # 只会对放在 hosts 组中的主机做操作
@@ -49,13 +49,13 @@ new_user_psw="该用户的初始密码"
 source /home/tsc/tsc_profile
 
 # 建立 (建立后自动执行 batch_user_manager_check.yml 校验效果更佳)
-ansible-playbook -i /home/tsc/tsc_tools/ansible/hosts /home/tsc/tsc_tools/ansible/roles/batch_user_manager_create.yml [--tags root|user]
+ansible-playbook -i /home/tsc/tsc_python/ansible/hosts /home/tsc/tsc_python/ansible/roles/batch_user_manager_create.yml [--tags root|user]
 
 # 校验
-ansible-playbook -i /home/tsc/tsc_tools/ansible/hosts /home/tsc/tsc_tools/ansible/roles/batch_user_manager_check.yml [--tags root|user]
+ansible-playbook -i /home/tsc/tsc_python/ansible/hosts /home/tsc/tsc_python/ansible/roles/batch_user_manager_check.yml [--tags root|user]
 
 # 回收
-ansible-playbook -i /home/tsc/tsc_tools/ansible/hosts /home/tsc/tsc_tools/ansible/roles/batch_user_manager_delete.yml [--tags root|user]
+ansible-playbook -i /home/tsc/tsc_python/ansible/hosts /home/tsc/tsc_python/ansible/roles/batch_user_manager_delete.yml [--tags root|user]
 ```
 
 check 剧本使用 `BatchMode` 强制仅凭密钥连接, 不会因密码可用而误判:

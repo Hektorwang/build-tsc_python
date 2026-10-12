@@ -11,6 +11,7 @@ with open(base_yml_path, "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
 
 tsc_interpreter = [
+    "/home/tsc/tsc_python/envs/tsc_python/bin/python3",
     "/home/tsc/tsc_tools/micromamba/envs/tsc_python/bin/python3",
     "/home/tsc/.pyenv/shims/python3",
     "/home/tsc/miniconda3/envs/tsc_python/bin/python3",

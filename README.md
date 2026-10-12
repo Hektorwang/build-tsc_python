@@ -5,28 +5,106 @@ English | [简体中文](README.zh_CN.md)
 ## Overview
 
 1. Builds the standardized TSC Python distribution.
-2. Ships Python `3.13.12` (version overridable via parameters), managed by `micromamba`, packaged as a self-extracting installer via `makeself`.
-3. One installer per CPU architecture (`x86_64` / `aarch64`); the environment is built in a CentOS 7.9 (glibc 2.17 baseline) container and is compatible with any Linux distribution shipping glibc >= 2.17.
+2. Ships Python 3.13 (exact version comes from `build.conf` `python_version`, overridable via `--python-version`), managed by `micromamba`, packaged as an RPM with `nfpm`.
+3. One RPM per CPU architecture (`x86_64` / `aarch64`); the environment is built in a CentOS 7.9 (glibc 2.17 baseline) container and is compatible with any Linux distribution shipping glibc >= 2.17.
+
+## Installation
+
+The artifact is a single RPM: `tsc_python-<version>-<release>.<arch>.rpm`
+(`<version>` comes from `Version=` in `release-note.md`, `<release>` is the build date).
+
+```bash
+# install
+rpm -ivh tsc_python-<version>-<release>.<arch>.rpm
+
+# upgrade / reinstall (use this when a previous version is present)
+rpm -Uvh tsc_python-<version>-<release>.<arch>.rpm
+
+# query
+rpm -q tsc_python
+rpm -ql tsc_python
+
+# uninstall
+rpm -e tsc_python
+```
+
+`%pre` validates `root` privileges, the CPU architecture (must match the package architecture,
+see `.supported_env.conf`) and the glibc baseline (2.17) **before** any file is written;
+on failure the installation is aborted and no half-installed tree is left behind.
+
+`%post` then finishes what rpm cannot do: it fixes module `run.sh` executable bits, creates
+`/var/log/tsc` (ansible log directory), deploys this package's profile drop-in (creating the
+`/home/tsc/tsc_profile` common entry first if it does not exist yet), rebuilds `rag.md` through
+`tsc_tools`' `gen_rag.sh` and patches ansible's `INTERPRETER_PYTHON_FALLBACK` list.
+All steps are idempotent.
+
+The environment is exposed through a profile **drop-in**, following the same split `tsc_tools >= 2.1.7` uses:
+
+| Path | Owner | Removed on uninstall |
+| --- | --- | --- |
+| `/home/tsc/tsc_profile` | common entry, created by whichever tool installs first; only sources `tsc_profile.d/*.sh` | no (shared infrastructure) |
+| `/home/tsc/tsc_profile.d/0-tsc_tools-profile` | tsc_tools | yes, by tsc_tools |
+| `/home/tsc/tsc_profile.d/01-tsc_python-profile.sh` (**this package**) | tsc_python | yes, by `%preun` (hash-verified: a fragment you edited is kept) |
+
+The numeric prefix fixes the load order (PATH/module dirs first, then the environment), which is
+also why the fragment declares `TSC_MODULES_DIR` itself — so `tsc` still finds the `tsc_python_*`
+modules when tsc_tools is absent. If `0-tsc_tools-profile` already declared that directory, this
+package skips its own declaration instead of duplicating the entry.
+
+**Runtime dependency:** this RPM declares a hard dependency on `tsc_tools >= 2.1.6`
+(the version that first shipped the drop-in loader in `/home/tsc/tsc_profile`).
+Install `tsc_tools` on the target machine first; on older `tsc_tools` `%post` bootstraps
+a loader block as a fallback, but aligning versions is recommended.
+
+```bash
+source /home/tsc/tsc_profile                        # full tsc environment (loads every drop-in)
+source /home/tsc/tsc_profile.d/01-tsc_python-profile.sh  # this package's environment alone
+```
+
+On uninstall, `%preun` removes this package's drop-in (after a sha256 check against
+`.installed_manifest`); `%postun` prunes the now-empty directory shells; rpm itself removes every
+packaged file. Kept on purpose: `/home/tsc/tsc_profile`, `/home/tsc/tsc_profile.d` with any custom
+fragment, `/var/log/tsc` with its runtime logs.
+
+If a pre-RPM (self-extracting) install of `tsc_python` is already present, `%pre` rotates
+`/home/tsc/tsc_tools/micromamba` to `micromamba.bak.<timestamp>` instead of mixing the two,
+and likewise rotates the obsolete `/home/tsc/tsc_python_profile` (removing its old mount line
+from `tsc_profile`); review and delete the backups once the new package is confirmed working.
 
 ## Repository layout
 
 ```text
 .
-├── build.sh                # build entry script
+├── build.sh                # build entry script (container build -> payload -> nfpm RPM)
 ├── Dockerfile              # the only builder image (CentOS 7.9, glibc 2.17 baseline)
 ├── func                    # shared function library (logging etc.)
-├── release-note.md         # release notes (shipped inside the installer)
+├── packaging/rpm/
+│   ├── nfpm.yaml.tmpl      # nfpm package definition template
+│   ├── preinstall.sh.tmpl  # %pre  (env admission + legacy rotation, INJECT-ed)
+│   ├── postinstall.sh.tmpl # %post (module bits, rag.md, ansible patch, profile)
+│   ├── preremove.sh        # %preun (drop-in reclaim by hash manifest, always exit 0)
+│   ├── postremove.sh       # %postun (prune empty directory shells)
+│   ├── env_check.sh        # env detection/admission (inlined into %pre)
+│   └── lib_min.sh          # minimal LOG* runtime for scriptlets
+├── .supported_env.conf     # supported arch whitelist / glibc baseline
+├── release-note.md         # release notes (shipped inside the package)
 ├── THIRD_PARTY_NOTICES.md  # third-party notices (English)
 ├── THIRD_PARTY_NOTICES.zh_CN.md
 ├── files/
-│   ├── pack.sh             # in-container packaging script (makeself, checksum, metadata)
-│   ├── install.sh          # installer script embedded in the package
+│   ├── pack.sh             # in-container packaging script (install tree, metadata)
+│   ├── ansible/            # ansible.cfg / hosts / roles (shipped)
+│   ├── modules/            # tsc_python_* plugin modules (shipped)
 │   ├── environment.yml     # conda environment definition (python version, system libraries)
 │   ├── requirements.in     # pip dependency declaration
 │   ├── requirements.txt    # pip dependency list
+│   ├── tsc_profile         # common profile entry template (deployed by %post, not shipped to the .d)
+│   ├── profile             # this package's drop-in source (deployed as 01-tsc_python-profile.sh)
+│   ├── smoke_test.sh       # post-install smoke test (shipped)
+│   ├── patch_ansible.py    # ansible interpreter fallback patch (shipped)
 │   ├── tmp/                # build-time files (micromamba/jq cache, generated environment.yml/condarc/pip.conf)
 │   └── ...
-└── output/                 # build artifact output directory
+├── output/                 # intermediate artifacts (install tree per arch)
+└── release/                # RPM output directory
 ```
 
 ## Prerequisites
@@ -44,6 +122,7 @@ Other requirements:
 
 - Docker installed and running; `build.sh` builds with `--pull=false`, so the build host must already have the **matching-architecture** `centos:7.9.2009` image
 - The host architecture equals the target architecture (x86_64 hosts build x86_64 packages, aarch64 hosts build aarch64 packages)
+- `nfpm` for the RPM packaging step (default `/bin/nfpm`; override with `NFPM_BIN=/path/to/nfpm ./build.sh`)
 
 ### Preserving the EL7 builder image (strongly recommended)
 
@@ -100,7 +179,7 @@ Common parameters can be stored in `build.conf` to avoid typing them every time.
 [build]
 micromamba_ver = 2.5.0
 repo_local     = http://192.168.1.100
-python_version = 3.13.12
+python_version = 3.13.16
 pypi_index     = https://mirrors.cernet.edu.cn/pypi/web/simple
 conda_forge    = https://mirrors.cernet.edu.cn/anaconda/cloud/conda-forge
 ```
@@ -111,7 +190,7 @@ conda_forge    = https://mirrors.cernet.edu.cn/anaconda/cloud/conda-forge
 bash build.sh --python-version 3.12.11
 ```
 
-### Third-party component cache (micromamba / jq / makeself)
+### Third-party component cache (micromamba / jq)
 
 All third-party build components use a **cache-first, download-on-demand** pattern: a valid local cache is used as-is; on absence or checksum mismatch they are fetched from upstream at pinned versions.
 
@@ -119,7 +198,6 @@ All third-party build components use a **cache-first, download-on-demand** patte
 | --- | --- | --- |
 | micromamba | `files/tmp/micromamba` (+ `.version`) | micro.mamba.pm |
 | jq (static binaries, two architectures) | `files/tmp/jq-x86_64` / `jq-aarch64` (sha256-verified) | github.com/jqlang/jq |
-| makeself | `files/makeself.sh` / `makeself-header.sh` | github.com/megastep/makeself |
 
 Offline build hosts can place the files manually. First download on an internet-connected machine (2.5.0 / x86_64 as an example, `linux-aarch64` for aarch64):
 
@@ -139,18 +217,21 @@ Force re-downloading (just delete the caches):
 ```bash
 rm -f files/tmp/micromamba files/tmp/micromamba.version
 rm -f files/tmp/jq-x86_64 files/tmp/jq-aarch64
-rm -f files/makeself.sh files/makeself-header.sh
 ```
 
 ### Build artifacts
 
-Artifacts are written to `output/<arch>/`; each build produces three files:
+`files/pack.sh` writes the install tree to `output/<arch>/payload/` inside the container;
+`build.sh` then packages it into `release/`:
 
 ```bash
-tsc_python-<version>-<arch>-<date>.sh        # makeself self-extracting installer
-tsc_python-<version>-<arch>-<date>.sh.sha256 # SHA256 checksum file
-tsc_python-<version>-<arch>-<date>.sh.json   # build metadata (version, time, arch, glibc baseline, ...)
+tsc_python-<version>-<release>.<arch>.rpm        # RPM package
+tsc_python-<version>-<release>.<arch>.rpm.sha256 # SHA256 checksum file
 ```
+
+`<version>` comes from `Version=` in `release-note.md`, `<release>` is the build date (`YYYYMMDD`).
+Build metadata (python / micromamba version, glibc baseline) is shipped inside the package as
+`/home/tsc/tsc_python/build-info.json`.
 
 ### Build logs
 
@@ -162,11 +243,11 @@ Docker output of each build is saved to `log/build-<arch>-<timestamp>.log`.
 
 `files/requirements.txt` is the **install list** — the build runs `uv pip install -r` against it. Since it is (or will be) generated, do not put process notes in it.
 
-Current transitional state: `requirements.txt` is hand-maintained and unpinned — when you change `requirements.in`, update `requirements.txt` to match.
+`requirements.txt` is the generated, locked install list (== pins from `uv pip compile`); do not hand-edit versions — change `requirements.in` and regenerate it.
 
-### Locking versions (planned)
+### Locking / regenerating versions
 
-Once the package stabilizes, lock the dependency set:
+The dependency set is already locked into `requirements.txt` (== pins). Regenerate it whenever `requirements.in` changes:
 
 ```bash
 # run from the repository root (requires pip-tools: pip install pip-tools)
@@ -192,7 +273,7 @@ uv pip compile files/requirements.in -o files/requirements.txt --no-header --no-
 | other glibc >= 2.17 Linux    | theoretically compatible, untested (e.g. Debian/Arch/SUSE) |
 | Alpine (musl) / FreeBSD      | not supported (no glibc)                     |
 
-All supported systems use the same installer `tsc_python-<version>-<arch>-<date>.sh`, selected by architecture; the installer verifies the target machine's architecture automatically.
+All supported systems use the same RPM for their architecture (`x86_64` / `aarch64`); the `%pre` scriptlet verifies the target machine's architecture and glibc baseline before writing any file.
 
 ## Intranet deployment
 
@@ -245,6 +326,6 @@ bash build.sh --repo-local http://<your-internal-repo-server>
 The code of this project is released under **GPL-3.0-or-later**, see [LICENSE](LICENSE) at the repository root.
 
 Third-party components referenced by the repository follow their own licenses, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) (Chinese version: [THIRD_PARTY_NOTICES.zh_CN.md](THIRD_PARTY_NOTICES.zh_CN.md)):
-the makeself scripts (GPL-2.0-or-later; the self-extracting installers they generate are declared by the author not to be subject to the GPL) and the jq static binaries (MIT) are fetched at build time at pinned versions and are not distributed with this repository.
+the micromamba binary (BSD-3-Clause) and the jq static binaries (MIT) are fetched at build time at pinned versions and are not distributed with this repository.
 
-The tsc_python installers produced by this tool are distributed to internal environments only.
+The tsc_python packages produced by this tool are distributed to internal environments only.

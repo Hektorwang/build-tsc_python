@@ -63,20 +63,21 @@ import_check() {  # $1=module  $2=严重级别(FAIL|WARN)
 }
 
 # ---------- 定位 python 环境 ----------
-ENV_ROOT="${MAMBA_ROOT_PREFIX:-/home/tsc/tsc_tools/micromamba}"
+ENV_ROOT="${MAMBA_ROOT_PREFIX:-/home/tsc/tsc_python}"
 ENV_DIR="${ENV_ROOT}/envs/tsc_python"
 PY="${ENV_DIR}/bin/python"
 ENV_BIN="${ENV_DIR}/bin"
 
 if [[ ! -x "${PY}" ]]; then
-    if [[ -f /home/tsc/tsc_python_profile ]]; then
-        source /home/tsc/tsc_python_profile
+    if [[ -f /home/tsc/tsc_profile.d/01-tsc_python-profile.sh ]]; then
+        # shellcheck disable=SC1091
+        source /home/tsc/tsc_profile.d/01-tsc_python-profile.sh
         PY="$(command -v python 2>/dev/null || true)"
         [[ -n "$PY" ]] && ENV_BIN="$(dirname -- "$PY")"
     fi
 fi
 if [[ -z "${PY:-}" || ! -x "${PY}" ]]; then
-    printf '%b\n' "${C_ERR}未找到 tsc_python 环境 (尝试过 ${ENV_DIR}/bin/python 和 tsc_python_profile)${C_END}" >&2
+    printf '%b\n' "${C_ERR}未找到 tsc_python 环境 (尝试过 ${ENV_DIR}/bin/python 和 tsc_profile.d/01-tsc_python-profile.sh)${C_END}" >&2
     exit 2
 fi
 
@@ -125,7 +126,6 @@ import_check certifi     FAIL
 # --- pip 层 ---
 import_check ansible     FAIL
 import_check asyncssh    FAIL
-import_check fastmcp     FAIL
 import_check psutil      FAIL
 import_check pexpect     FAIL
 import_check watchdog    FAIL
@@ -200,15 +200,24 @@ else
 fi
 
 section "安装链路与外部依赖 (WARN 级)"
-if [[ -f /home/tsc/tsc_python_profile ]]; then
-    report PASS "tsc_python_profile 存在"
+DROPIN=/home/tsc/tsc_profile.d/01-tsc_python-profile.sh
+if [[ -f ${DROPIN} ]]; then
+    report PASS "profile drop-in 存在" "${DROPIN}"
 else
-    report WARN "tsc_python_profile 存在" "/home/tsc/tsc_python_profile 未找到 (未按默认路径安装?)"
+    report WARN "profile drop-in 存在" "${DROPIN} 未找到 (安装未完成或未按默认路径安装?)"
 fi
-if [[ -f /home/tsc/tsc_profile ]] && grep -q "tsc_python_profile" /home/tsc/tsc_profile; then
-    report PASS "tsc_profile 已挂载 tsc_python_profile"
+if [[ -f /home/tsc/tsc_profile ]] && grep -q "tsc_profile\.d" /home/tsc/tsc_profile; then
+    report PASS "tsc_profile 会加载 tsc_profile.d 片段"
 else
-    report WARN "tsc_profile 已挂载 tsc_python_profile" "/home/tsc/tsc_profile 中缺少 source 行"
+    report WARN "tsc_profile 会加载 tsc_profile.d 片段" "/home/tsc/tsc_profile 缺失或未引用 tsc_profile.d"
+fi
+# tsc (tsc_tools >= 2.1.7) 依赖 TSC_MODULES_DIR 发现本包模块
+# shellcheck disable=SC1091
+out="$(bash -c 'source /home/tsc/tsc_profile >/dev/null 2>&1 && printf "%s" "${TSC_MODULES_DIR:-}"' 2>/dev/null || true)"
+if [[ -n "${out}" ]] && [[ ":${out}:" == *":/home/tsc/tsc_python/modules:"* ]]; then
+    report PASS "TSC_MODULES_DIR 含本包模块目录" "${out}"
+else
+    report WARN "TSC_MODULES_DIR 含本包模块目录" "当前值为 '${out}' (tsc 可能无法发现 tsc_python_* 模块)"
 fi
 if command -v jq >/dev/null 2>&1; then
     report PASS "jq 可用" "yq 依赖 jq"

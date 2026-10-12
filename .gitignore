@@ -1,10 +1,11 @@
 /tmp
 /output
+/release
+/stage
 /.profile
 /.buildx-cache
 /log
 /.mypy_cache
 /build.conf
-/files/makeself.sh
-/files/makeself-header.sh
 !.gitignore
+files/__pycache__/

@@ -1,0 +1,121 @@
+#!/bin/bash
+#
+# tsc_python RPM ---- %pre (安装前校验 + 旧安装残留轮转)
+#
+# 执行时机: 包文件解压落盘之前, 因此脚本必须自包含。
+# build.sh 会把 `# >>> INJECT <file>` 标记替换为下列文件的实际内容:
+#   packaging/rpm/lib_min.sh   最小日志库
+#   .supported_env.conf        受支持环境清单 (架构白名单 / glibc 基线)
+#   packaging/rpm/env_check.sh 检测与准入逻辑
+# build.sh 同时会把 @ARCH@ 替换为本包的构建架构。
+#
+# %pre 返回非零时 rpm 会中止安装, 环境不符的机器不会留下半成品文件。
+##################################################
+# shellcheck disable=SC1090,SC1091,SC2034
+set -o errexit
+set -o nounset
+set -o pipefail
+set +o posix
+shopt -s nullglob
+
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+
+# RPM scriptlet 由 /bin/sh 执行, 本脚本依赖 bash (>= 4) 的关联数组
+if [[ -z "${BASH_VERSION:-}" ]]; then
+    echo "ERROR: /bin/sh is not bash, tsc_python requires bash >= 4.0 to install." >&2
+    exit 1
+fi
+if ((BASH_VERSINFO[0] < 4)); then
+    echo "ERROR: Bash version too low (${BASH_VERSION}), requires at least 4.0." >&2
+    exit 1
+fi
+
+__LOG_TAG="tsc_python-pre"
+
+# 本包构建架构 (由 build.sh 渲染)
+readonly PACKAGE_ARCH="@ARCH@"
+
+# >>> INJECT packaging/rpm/lib_min.sh
+# >>> INJECT .supported_env.conf
+# >>> INJECT packaging/rpm/env_check.sh
+
+##################################################
+# 轮转旧的非 RPM 安装残留
+#
+# makeself 时代的环境直接落在 /home/tsc/tsc_tools/micromamba, 这些文件不属于
+# 任何 rpm 包: 安装后会与本包文件混在一起, 卸载时也回收不掉。
+# 仅当该目录不被任何已安装包认领时才轮转——升级 (rpm -U) 时它由本包旧版本持有,
+# 此时必须原样保留, 否则新包的 %post 会面对一个被搬空的目录。
+# 参数:
+#   None
+# 返回:
+#   0 - 无需轮转 / 已轮转
+#   1 - 轮转失败 (由调用方中止安装)
+##################################################
+rotate_legacy_install() {
+    local dir="/home/tsc/tsc_tools/micromamba"
+    [[ -d "${dir}" ]] || return 0
+
+    if command -v rpm &>/dev/null && rpm -qf "${dir}" &>/dev/null; then
+        LOGINFO "${dir} is owned by $(rpm -qf "${dir}" | head -n1), skip rotation"
+        return 0
+    fi
+
+    local backup="${dir}.bak.$(date "+%Y%m%d%H%M%S")"
+    if ! mv "${dir}" "${backup}"; then
+        LOGERROR "Failed to rotate legacy directory: ${dir}"
+        return 1
+    fi
+    LOGWARNING "Legacy non-RPM install detected, rotated: ${dir} -> ${backup}"
+    return 0
+}
+
+##################################################
+# 轮转旧版 profile 注入痕迹
+#
+# makeself 时代本包把 profile 片段放在 /home/tsc/tsc_python_profile, 并在
+# /home/tsc/tsc_profile 里追加了一行 source; 改用 tsc_profile.d/*.sh 之后,
+# 这两个残留会让"哪份 profile 在生效"变得说不清, 一并回收:
+#   - 摘掉 /home/tsc/tsc_profile 里的旧 source 行 (只删除本包自己那一行,
+#     tsc_tools 或其他工具的内容原样保留)
+#   - 旧片段文件轮转为 /home/tsc/tsc_python_profile.pre-rpm.<timestamp>
+# 同样只处理非 rpm 认领的文件。
+##################################################
+rotate_legacy_profile() {
+    local legacy_file="/home/tsc/tsc_python_profile"
+    local profile="/home/tsc/tsc_profile"
+    local mount_line="source ${legacy_file}"
+
+    [[ -e "${legacy_file}" ]] || return 0
+
+    if command -v rpm &>/dev/null && rpm -qf "${legacy_file}" &>/dev/null; then
+        LOGINFO "${legacy_file} is owned by $(rpm -qf "${legacy_file}" | head -n1), skip rotation"
+        return 0
+    fi
+
+    if [[ -f "${profile}" ]] && grep -qF "${mount_line}" "${profile}" 2>/dev/null; then
+        sed -i "\|${mount_line}|d" "${profile}"
+        LOGINFO "Removed legacy profile mount line from ${profile}"
+    fi
+
+    local backup="${legacy_file}.pre-rpm.$(date "+%Y%m%d%H%M%S")"
+    if ! mv "${legacy_file}" "${backup}"; then
+        LOGERROR "Failed to rotate legacy profile: ${legacy_file}"
+        return 1
+    fi
+    LOGWARNING "Legacy profile rotated: ${legacy_file} -> ${backup} (now served by /home/tsc/tsc_profile.d/01-tsc_python-profile.sh)"
+    return 0
+}
+
+declare -A system_info
+
+if ! check_env; then
+    echo "" >&2
+    echo "tsc_python: 环境准入校验未通过, 已中止安装 (未写入任何文件)." >&2
+    exit 1
+fi
+
+rotate_legacy_install
+rotate_legacy_profile
+
+exit 0

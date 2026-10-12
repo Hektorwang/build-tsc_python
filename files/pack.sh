@@ -2,7 +2,13 @@
 # shellcheck disable=SC1090,SC1091
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Hek <hektorwang@gmail.com>
-# 容器内打包脚本: makeself 自解压打包、checksum 与元数据生成
+# 容器内打包脚本: 组装 RPM 打包源 (payload)、glibc 门限检查与构建元数据生成
+#
+# 本脚本只负责"产出安装树", 不打 RPM: RPM 由宿主机 build.sh 用 nfpm 打包
+# (nfpm 不必进入构建容器, 且宿主机可直接对产物做 rpm -q 自检)。
+# 产物:
+#   output/payload/home/tsc/...  安装树 (相对 /home/tsc, 与 nfpm 的 dst 对应)
+#   output/payload/home/tsc/tsc_python/build-info.json  构建元数据 (随包分发)
 set -o errexit
 set -o nounset
 set -o pipefail
@@ -10,9 +16,11 @@ set +o posix
 shopt -s nullglob
 
 WORK_DIR="$(dirname "$(readlink -f "$0")")"
-TSC_TOOLS_DIR="/home/tsc/tsc_tools"
-MICROMAMBA_DIR="${TSC_TOOLS_DIR}/micromamba"
+TSC_HOME_DIR="/home/tsc"
+# 环境本体根目录: mamba root + envs/tsc_python, 同时也是随包文档/工具的落点
+MICROMAMBA_DIR="${TSC_HOME_DIR}/tsc_python"
 OUTPUT_DIR="${WORK_DIR}/output"
+PAYLOAD_DIR="${OUTPUT_DIR}/payload"
 export MAMBA_ROOT_PREFIX="${MICROMAMBA_DIR}"
 
 source "${WORK_DIR}/func"
@@ -46,105 +54,112 @@ check_glibc_baseline() {
     LOGSUCCESS "check_glibc_baseline"
 }
 
-pack_installer() {
+##################################################
+# 组装 RPM 打包源
+#
+# 目录布局与目标机一致 (相对 /home/tsc):
+#   tsc_python/                         环境本体根目录 (mamba root + envs/tsc_python)
+#   tsc_python/<docs>                   随包文档与工具
+#   tsc_python/tsc_profile              tsc_profile 公共入口模板 (%post 在首次安装时部署)
+#   tsc_python/profile                  本包 drop-in 源 (%post 部署为 tsc_profile.d/01-tsc_python-profile.sh)
+#   tsc_python/ansible/                ansible.cfg / hosts / roles
+#   tsc_python/modules/tsc_python_*/   插件模块 (由本包独占目录, 与 tsc_tools 自有 modules 解耦)
+##################################################
+prepare_payload() {
     LOGINFO "${FUNCNAME[0]}"
-    
+
     # 清理缓存
     find "${MICROMAMBA_DIR}" -type d -name "__pycache__" -exec rm -rf {} +
     rm -rf "${MICROMAMBA_DIR}"/pkgs
-    
-    # 创建详细的构建信息文件
-    cat <<EOF >"${WORK_DIR}/.profile"
-#!/usr/bin/env bash
-# Build Configuration
-build_arch=${build_arch}
-build_date=${BUILD_DATE}
-build_timestamp=${BUILD_TIMESTAMP}
-build_version=${version}
 
-EOF
-    
-    # 打包 micromamba
-    cd "${TSC_TOOLS_DIR}" || exit 99
-    tar czf micromamba.tar.gz micromamba
-    
-    # 准备安装包目录
-    mkdir -p "${OUTPUT_NAME}"
-    \cp -r micromamba.tar.gz \
-        "${WORK_DIR}"/release-note.md \
+    # 创建 payload 根 (mv 目标父目录必须存在)
+    mkdir -p "${PAYLOAD_DIR}/home/tsc"
+
+    # 环境本体直接移动而非拷贝: 体积 1G+ 且多为硬链接, 拷贝既慢又容易翻倍
+    mv "${MICROMAMBA_DIR}" "${PAYLOAD_DIR}/home/tsc/tsc_python"
+
+    # 随包文档与工具
+    \cp "${WORK_DIR}"/release-note.md \
         "${WORK_DIR}"/readme.md \
-        "${WORK_DIR}"/func \
-        "${WORK_DIR}"/tsc_python_profile \
-        "${WORK_DIR}"/install.sh \
-        "${WORK_DIR}"/patch_ansible.py \
-        "${WORK_DIR}"/smoke_test.sh \
         "${WORK_DIR}"/THIRD_PARTY_NOTICES.md \
         "${WORK_DIR}"/THIRD_PARTY_NOTICES.zh_CN.md \
-        "${WORK_DIR}"/.profile \
-        "${WORK_DIR}"/ansible \
-        "${WORK_DIR}"/modules \
-        "${OUTPUT_NAME}"/
-    
-    # 复制依赖清单文件（如果存在）
-    if [[ -f "${WORK_DIR}"/conda-packages.json ]]; then
-        mkdir -p "${OUTPUT_NAME}"/manifests
-        \cp "${WORK_DIR}"/conda-packages.json "${OUTPUT_NAME}"/manifests/ 2>/dev/null || true
-        \cp "${WORK_DIR}"/conda-packages.txt "${OUTPUT_NAME}"/manifests/ 2>/dev/null || true
-        \cp "${WORK_DIR}"/pip-packages.json "${OUTPUT_NAME}"/manifests/ 2>/dev/null || true
-        \cp "${WORK_DIR}"/pip-freeze.txt "${OUTPUT_NAME}"/manifests/ 2>/dev/null || true
-        \cp "${WORK_DIR}"/environment-lock.yml "${OUTPUT_NAME}"/manifests/ 2>/dev/null || true
-        \cp "${WORK_DIR}"/build-info.txt "${OUTPUT_NAME}"/manifests/ 2>/dev/null || true
-        LOGINFO "Dependency manifests copied to ${OUTPUT_NAME}/manifests/"
+        "${WORK_DIR}"/smoke_test.sh \
+        "${WORK_DIR}"/patch_ansible.py \
+        "${PAYLOAD_DIR}"/home/tsc/tsc_python/
+
+    # profile 公共入口模板 + 本包 drop-in 源 (由 %post 部署到 /home/tsc 下)
+    \cp "${WORK_DIR}"/tsc_profile "${WORK_DIR}"/profile "${PAYLOAD_DIR}"/home/tsc/tsc_python/
+    chmod 0644 "${PAYLOAD_DIR}"/home/tsc/tsc_python/tsc_profile \
+        "${PAYLOAD_DIR}"/home/tsc/tsc_python/profile
+
+    # ansible 配置与 roles (随本包装在 tsc_python 树下, 与 tsc_tools 解耦)
+    \cp -r "${WORK_DIR}"/ansible "${PAYLOAD_DIR}"/home/tsc/tsc_python/ansible
+
+    # 插件模块 (本包独占目录, 避免与 tsc_tools 的 modules 命名空间冲突)
+    mkdir -p "${PAYLOAD_DIR}"/home/tsc/tsc_python/modules
+    \cp -r "${WORK_DIR}"/modules/* "${PAYLOAD_DIR}"/home/tsc/tsc_python/modules/
+
+    # 可执行位: 模块入口与冒烟测试 (防打包/拷贝过程丢失)
+    # 同时把环境内二进制归一化到 0755: 构建容器 umask 002 会让它们带上组写位 (0775),
+    # 共享目录 /home/tsc 下 root 所有的二进制保持 0755 更干净, 也让产物自检不依赖构建机 umask
+    chmod 0755 "${PAYLOAD_DIR}"/home/tsc/tsc_python/bin/* \
+        "${PAYLOAD_DIR}"/home/tsc/tsc_python/envs/tsc_python/bin/* \
+        "${PAYLOAD_DIR}"/home/tsc/tsc_python/modules/*/run.sh \
+        "${PAYLOAD_DIR}"/home/tsc/tsc_python/smoke_test.sh
+
+    LOGINFO "Payload: ${PAYLOAD_DIR} ($(find "${PAYLOAD_DIR}" -type f | wc -l) files)"
+}
+
+##################################################
+# 把 ansible 的 base.yml 移出安装树, 单独暂存
+#
+# patch_ansible.py (%post) 会改写该文件注入解释器回退列表; 若它随普通文件进包,
+# rpm 会视其为被改动 (rpm -V 报错), 且升级时被覆盖丢失现场修补。
+# 改为在构建侧移出批量拷贝的安装树, 由 build.sh 以 %config(noreplace) 单独声明,
+# 升级即保留现场已改写版本。
+##################################################
+stage_ansible_base() {
+    local base_yml
+    base_yml="$(find "${PAYLOAD_DIR}" -path '*/ansible/config/base.yml' -print -quit 2>/dev/null)"
+    if [[ -z "${base_yml}" ]]; then
+        LOGWARNING "stage_ansible_base: 未找到 ansible base.yml, 跳过"
+        return 0
     fi
-    
-    # 创建 makeself 自解压安装包
-    "${WORK_DIR}"/makeself.sh --needroot --tar-quietly \
-        "${OUTPUT_NAME}" "${OUTPUT_FILE}" \
-        "TSC PYTHON ${version}" \
-        ./install.sh
-    
-    chmod +x "${OUTPUT_FILE}"
-    
-    # 生成 checksum 和元数据文件
-    cd "${OUTPUT_DIR}" || exit 99
-    OUTPUT_BASENAME=$(basename "${OUTPUT_FILE}")
-    
-    # SHA256 checksum
-    sha256sum "${OUTPUT_BASENAME}" > "${OUTPUT_BASENAME}.sha256"
-    LOGINFO "Generated checksum: ${OUTPUT_BASENAME}.sha256"
-    
-    # 创建元数据 JSON 文件
-    cat <<EOF >"${OUTPUT_BASENAME}.json"
+    mkdir -p "${OUTPUT_DIR}/staged"
+    \cp -f "${base_yml}" "${OUTPUT_DIR}/staged/ansible_base.yml"
+    \rm -f "${base_yml}"
+    if [[ -e "${base_yml}" ]]; then
+        LOGERROR "stage_ansible_base: 未能从安装树删除 ${base_yml}"
+        exit 1
+    fi
+    LOGINFO "stage_ansible_base: ${base_yml} -> ${OUTPUT_DIR}/staged/ansible_base.yml"
+}
+
+##################################################
+# 生成构建元数据 (随包分发, 便于现场核对包内容)
+##################################################
+write_build_info() {
+    LOGINFO "${FUNCNAME[0]}"
+    mkdir -p "${OUTPUT_DIR}"
+    cat <<EOF >"${PAYLOAD_DIR}/home/tsc/tsc_python/build-info.json"
 {
   "name": "tsc_python",
   "version": "${version}",
-  "filename": "${OUTPUT_BASENAME}",
   "build": {
     "build_date": "${BUILD_DATE}",
     "timestamp": ${BUILD_TIMESTAMP},
     "architecture": "${build_arch}",
     "glibc_baseline": "${GLIBC_BASELINE}"
   },
-  "checksums": {
-    "sha256": "$(sha256sum "${OUTPUT_BASENAME}" | awk '{print $1}')"
-  },
-  "size_bytes": $(stat -c%s "${OUTPUT_BASENAME}" 2>/dev/null || stat -f%z "${OUTPUT_BASENAME}"),
   "python_version": "${PYTHON_VERSION}",
   "micromamba_version": "${MICROMAMBA_VERSION}"
 }
 EOF
-    LOGINFO "Generated metadata: ${OUTPUT_BASENAME}.json"
-    
-    LOGSUCCESS "Output file: ${OUTPUT_FILE}"
-    LOGSUCCESS "Checksum: ${OUTPUT_FILE}.sha256"
-    LOGSUCCESS "Metadata: ${OUTPUT_FILE}.json"
-    LOGSUCCESS "${FUNCNAME[0]}"
+    LOGSUCCESS "build-info.json: ${PAYLOAD_DIR}/home/tsc/tsc_python/build-info.json"
 }
 
 BUILD_DATE="$(date +%Y%m%d)"
 BUILD_TIMESTAMP="$(date +%s)"
-
-ARCH="$(arch)"
 
 version="$(grep -oP "^\s*(#+)?\s*Version=\s*?\K\S+$" "${WORK_DIR}"/release-note.md | head -n1)"
 
@@ -157,10 +172,11 @@ MICROMAMBA_VERSION="$("${MICROMAMBA_DIR}/bin/micromamba" --version 2>/dev/null)"
 PYTHON_VERSION="${PYTHON_VERSION:-unknown}"
 MICROMAMBA_VERSION="${MICROMAMBA_VERSION:-unknown}"
 
-OUTPUT_NAME="tsc_python-${version}-${ARCH}-${BUILD_DATE}"
-OUTPUT_FILE="${OUTPUT_DIR}"/"${OUTPUT_NAME}".sh
-# OUTPUT_FILE="${OUTPUT_DIR}"/"${OUTPUT_NAME}".tar.gz
 mkdir -p "${OUTPUT_DIR}"
 
 check_glibc_baseline
-pack_installer
+prepare_payload
+stage_ansible_base
+write_build_info
+
+LOGSUCCESS "Payload ready: ${PAYLOAD_DIR}"

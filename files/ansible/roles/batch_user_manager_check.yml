@@ -8,7 +8,7 @@
       ansible.builtin.assert:
         that:
           - new_user is defined
-        fail_msg: "请在 inventory (/home/tsc/tsc_tools/ansible/hosts) 的 [all:vars] 段配置 new_user"
+        fail_msg: "请在 inventory (/home/tsc/tsc_python/ansible/hosts) 的 [all:vars] 段配置 new_user"
         quiet: true
   tasks:
     - name: Check business user exists on localhost
@@ -60,7 +60,7 @@
       ansible.builtin.assert:
         that:
           - new_user is defined
-        fail_msg: "请在 inventory (/home/tsc/tsc_tools/ansible/hosts) 的 [all:vars] 段配置 new_user"
+        fail_msg: "请在 inventory (/home/tsc/tsc_python/ansible/hosts) 的 [all:vars] 段配置 new_user"
         quiet: true
   tasks:
     - name: Identify remote user via key-only connection

@@ -8,7 +8,7 @@
         that:
           - new_user is defined
           - new_user_psw is defined
-        fail_msg: "请在 inventory (/home/tsc/tsc_tools/ansible/hosts) 的 [all:vars] 段配置 new_user 与 new_user_psw"
+        fail_msg: "请在 inventory (/home/tsc/tsc_python/ansible/hosts) 的 [all:vars] 段配置 new_user 与 new_user_psw"
         quiet: true
       tags: [always]
   roles:
@@ -23,7 +23,7 @@
         that:
           - new_user is defined
           - new_user_psw is defined
-        fail_msg: "请在 inventory (/home/tsc/tsc_tools/ansible/hosts) 的 [all:vars] 段配置 new_user 与 new_user_psw"
+        fail_msg: "请在 inventory (/home/tsc/tsc_python/ansible/hosts) 的 [all:vars] 段配置 new_user 与 new_user_psw"
         quiet: true
       tags: [always]
   roles:

@@ -1,0 +1,53 @@
+# 由 build.sh 渲染生成, 请勿手工编辑
+# 模板占位符: @VERSION@ @RELEASE@ @ARCH@ @STAGE_DIR@
+name: tsc_python
+arch: "@ARCH@"
+platform: linux
+version: "@VERSION@"
+release: "@RELEASE@"
+maintainer: tsc_python maintainers
+vendor: TSC
+description: |
+  TSC Python 运行时发行版: micromamba 管理的 Python 环境 (ansible 等) 及其插件模块。
+  按 CPU 架构分别出包, 环境在 CentOS 7.9 (glibc 2.17 基线) 容器中构建,
+  兼容所有 glibc >= 2.17 的 Linux 发行版。
+
+# 硬依赖:
+#   bash >= 4.0   scriptlet 使用关联数组, 低于 4.0 的 bash 由 %pre 显式拦下
+#   glibc >= 2.17 环境构建基线, 目标机低于该值时环境无法运行 (%pre 亦会校验)
+#   grep / sed    scriptlet (如 tsc_tools 的 gen_rag) 处理文本时使用
+#   tsc_tools >= 2.1.6
+#                profile 以 drop-in 形式提供 (/home/tsc/tsc_profile.d/01-tsc_python-profile.sh),
+#                需 tsc_tools >= 2.1.6 的 tsc_profile 才会加载该目录下的 *.sh;
+#                低于此版本时 %post 会 bootstrap 一段加载器兜底, 但强烈建议直接装对齐的 tsc_tools
+depends:
+  - bash >= 4.0
+  - coreutils
+  - glibc >= 2.17
+  - grep
+  - sed
+  - tsc_tools >= 2.1.6
+
+contents:
+  # 包内容统一挂在 /home/tsc 下: tsc_python/(环境本体 + profile 源 + ansible 配置 + 插件模块)
+  # drop-in 与 tsc_profile 公共入口由 %post 从 tsc_python/ 下部署到 /home/tsc, 不进文件清单
+  - src: "@STAGE_DIR@/payload/home/tsc/"
+    dst: /home/tsc
+
+  # ansible 的 INTERPRETER_PYTHON_FALLBACK 由 %post 的 patch_ansible.py 改写;
+  # 以 %config(noreplace) 单独声明: 升级保留现场已改写版本, rpm -V 不视其为异常。
+  # 该文件在容器内已被移出批量安装树 (pack.sh stage_ansible_base), 此处单独纳入。
+  - src: "@STAGE_DIR@/ansible_base.yml"
+    dst: /home/tsc/tsc_python/envs/tsc_python/lib/python@PYTHON_MM@/site-packages/ansible/config/base.yml
+    type: config|noreplace
+
+scripts:
+  preinstall: "@STAGE_DIR@/rpm-scripts/preinstall"
+  postinstall: "@STAGE_DIR@/rpm-scripts/postinstall"
+  preremove: "@STAGE_DIR@/rpm-scripts/preremove"
+  postremove: "@STAGE_DIR@/rpm-scripts/postremove"
+
+rpm:
+  arch: "@ARCH@"
+  # gzip 兼容性最广 (EL7 的 rpm 不支持 zstd), 代价是体积略大
+  compression: gzip
