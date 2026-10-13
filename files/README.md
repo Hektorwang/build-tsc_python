@@ -37,7 +37,7 @@ rpm -e tsc_python
 公共入口 `/home/tsc/tsc_profile` 按文件名顺序加载 `tsc_profile.d/*.sh`
 (首次安装时由本包或 tsc_tools 创建).
 
-> 本 RPM 硬依赖 `tsc_tools >= 2.1.6` (首次在 `tsc_profile` 中提供 drop-in 加载器的版本), 目标机请先安装 tsc_tools. `%post` 从不改写已存在的 `/home/tsc/tsc_profile`, 仅在其缺失时用包内模板创建 (模板自带加载逻辑), 不会碰 tsc_tools 自己的文件.
+> 本 RPM 硬依赖 `tsc_tools >= 2.1.8` (2.1.6 是首次提供 drop-in 加载器的版本, 下限抬到 2.1.8 是因为 rag.md 去重的修复在 tsc_tools 侧), 目标机请先安装 tsc_tools. `%post` 从不改写已存在的 `/home/tsc/tsc_profile`, 仅在其缺失时用包内模板创建 (模板自带加载逻辑), 不会碰 tsc_tools 自己的文件.
 
 ```bash
 source /home/tsc/tsc_profile                           # 完整 tsc 环境

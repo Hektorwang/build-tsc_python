@@ -44,14 +44,16 @@ python3。所有步骤幂等。
 | `/home/tsc/tsc_profile.d/01-tsc_tools-profile.sh` | tsc_tools | 是，由 tsc_tools |
 | `/home/tsc/tsc_profile.d/01-tsc_python-profile.sh`（本包） | tsc_python | 是，由 `%preun`（本包独占：每次安装/升级刷新，卸载时无条件回收，不保留本地修改；现场自定义片段请另建文件，如 `99-local-profile.sh`） |
 
-数字前缀决定加载顺序。`01-tsc_python-profile.sh` 按全名字母序排在 `01-tsc_tools-profile.sh`
-之前（tsc_tools 2.1.7 与本包同用 `01-` 前缀），因此本包片段先被加载；片段里自带
-`TSC_MODULES_DIR` 声明，是为了在没装 tsc_tools 时 `tsc` 也能发现 `tsc_python_*` 模块——若
-`01-tsc_tools-profile.sh` 已声明过同一目录则跳过，避免重复项让 `gen_rag.sh` 把同一份
-readme 收录两次。
+数字前缀决定加载顺序：`00-tsc_tools-profile.sh`（tsc_tools >= 2.1.8）排在
+`01-tsc_python-profile.sh`（本包）之前。两侧片段都声明 `TSC_MODULES_DIR`——本包前插自己的
+模块目录、tsc_tools 后插它的——因此无论谁先加载，最终变量内顺序都一致（本包模块在前），
+且本包片段自带该声明，在没装 tsc_tools 时 `tsc` 也能发现 `tsc_python_*` 模块。两侧都在
+目录已存在时跳过自己的声明：重复项会让 `gen_rag.sh` 把同一份 readme 收录两次，rag.md 成倍膨胀。
 
-**运行期依赖**：本 RPM 声明硬依赖 `tsc_tools >= 2.1.6`（首次在 `tsc_profile` 中提供 drop-in 加载器的版本）。
-目标机请先安装 `tsc_tools`。`%post` 从不改写已存在的 `/home/tsc/tsc_profile`——仅在该文件缺失时
+**运行期依赖**：本 RPM 声明硬依赖 `tsc_tools >= 2.1.8`。2.1.6 是首次在 `tsc_profile` 中提供
+drop-in 加载器的版本，但下限抬到 2.1.8——本包 `%post` 调用 tsc_tools 随包的 `gen_rag.sh`，而
+rag.md 膨胀的根因（`TSC_MODULES_DIR` 被重复追加）修在 tsc_tools 侧，低版本上仍会产出成倍
+重复的 rag.md。目标机请先安装 `tsc_tools`。`%post` 从不改写已存在的 `/home/tsc/tsc_profile`——仅在该文件缺失时
 用包内模板创建（模板自带 `tsc_profile.d/*.sh` 加载逻辑），因此不会碰 tsc_tools 自己的文件。
 
 ```bash
@@ -154,6 +156,17 @@ docker push <内网registry>/baseimages/centos:7.9.2009
 ```bash
 # 构建当前机器架构的安装包
 bash build.sh
+```
+
+> **前置条件**: `build.sh` 在没有任何配置时会直接报错退出——
+> `yum 源地址未配置: 请通过 --repo-local 参数或 build.conf 的 repo_local 键提供`。
+> 首次构建请先从 `build.conf.example` 生成 `build.conf` 并至少填好 `repo_local`,
+> 或每次显式传 `--repo-local`:
+
+```bash
+cp build.conf.example build.conf   # 然后按内网环境修改 repo_local / pypi_index / conda_forge
+# 或
+bash build.sh --repo-local http://<内网 yum 源>
 ```
 
 ### 参数说明

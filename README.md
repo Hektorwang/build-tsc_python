@@ -44,18 +44,22 @@ The environment is exposed through a profile **drop-in**, following the same spl
 | Path | Owner | Removed on uninstall |
 | --- | --- | --- |
 | `/home/tsc/tsc_profile` | common entry, created by whichever tool installs first; only sources `tsc_profile.d/*.sh` | no (shared infrastructure) |
-| `/home/tsc/tsc_profile.d/01-tsc_tools-profile.sh` | tsc_tools | yes, by tsc_tools |
+| `/home/tsc/tsc_profile.d/00-tsc_tools-profile.sh` (tsc_tools >= 2.1.8) | tsc_tools | yes, by tsc_tools |
 | `/home/tsc/tsc_profile.d/01-tsc_python-profile.sh` (**this package**) | tsc_python | yes, by `%preun` (owned solely by this package: refreshed on every install/upgrade, removed unconditionally on uninstall — local edits are not preserved; put custom fragments in a different file, e.g. `99-local-profile.sh`) |
 
-The numeric prefix fixes the load order. `01-tsc_python-profile.sh` sorts before
-`01-tsc_tools-profile.sh` (tsc_tools 2.1.7 uses the same `01-` prefix), so this package's
-fragment is sourced first, which is also why the fragment declares `TSC_MODULES_DIR` itself —
-so `tsc` still finds the `tsc_python_*` modules when tsc_tools is absent. If
-`01-tsc_tools-profile.sh` already declared that directory, this package skips its own
-declaration instead of duplicating the entry.
+The numeric prefix fixes the load order: `00-tsc_tools-profile.sh` (tsc_tools >= 2.1.8)
+is sourced before `01-tsc_python-profile.sh` (this package). Both fragments declare
+`TSC_MODULES_DIR` — this package prepends its own modules, tsc_tools appends theirs — so
+the resulting order is the same whichever fragment loads first, and this package still
+finds its `tsc_python_*` modules when tsc_tools is absent. Each fragment skips its own
+declaration when the directory is already present: a duplicated entry would make
+`gen_rag.sh` collect the same readme twice and bloat `rag.md`.
 
-**Runtime dependency:** this RPM declares a hard dependency on `tsc_tools >= 2.1.6`
-(the version that first shipped the drop-in loader in `/home/tsc/tsc_profile`).
+**Runtime dependency:** this RPM declares a hard dependency on `tsc_tools >= 2.1.8`.
+2.1.6 is the version that first shipped the drop-in loader in `/home/tsc/tsc_profile`,
+but the floor is raised to 2.1.8 because this package's `%post` calls tsc_tools'
+`gen_rag.sh`, and the `rag.md` de-duplication fix lives on the tsc_tools side — with an
+older tsc_tools the merged `rag.md` still comes out duplicated.
 Install `tsc_tools` on the target machine first. `%post` never rewrites an existing
 `/home/tsc/tsc_profile` — it only creates it from the packaged template (which sources
 `tsc_profile.d/*.sh`) when the file is missing — so tsc_tools' own files are never touched.
@@ -161,6 +165,17 @@ docker push <internal-registry>/baseimages/centos:7.9.2009
 ```bash
 # build the installer for the current machine architecture
 bash build.sh
+```
+
+> **Prerequisite:** with no configuration at all `build.sh` aborts immediately with
+> `yum 源地址未配置: 请通过 --repo-local 参数或 build.conf 的 repo_local 键提供`.
+> Before the first build, create `build.conf` from `build.conf.example` and fill in at
+> least `repo_local`, or pass `--repo-local` explicitly every time:
+
+```bash
+cp build.conf.example build.conf   # then adjust repo_local / pypi_index / conda_forge
+# or
+bash build.sh --repo-local http://<internal-yum-repo>
 ```
 
 ### Options

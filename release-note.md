@@ -1,5 +1,15 @@
 # tsc_python
 
+## Version=0.13.2
+
+Date=20261013
+
+1. fix(modules): 三个文档模块 (`tsc_python_ansible`/`tsc_python_batch_user_manager`/`tsc_python_changehostname`) 的 run.sh 原来统一 `find ... -exec glow {} +`, glow 传文件路径时进 TUI 模式, stdout 非 TTY (管道/重定向/输出被上层接管) 时静默输出空内容——`tsc --tsc_python_ansible` 什么都看不到。改为按 TTY 分流: 交互式仍走 glow 翻页, 非交互式直接输出 readme 原文
+2. fix(rpm): 硬依赖 `tsc_tools >= 2.1.6` 提升为 `>= 2.1.8`——本包 `%post` 调用 tsc_tools 的 `gen_rag.sh`, 而 `rag.md` 膨胀的根因 (`TSC_MODULES_DIR` 重复追加) 修在 tsc_tools 侧 (其 drop-in 判重 + `gen_rag.sh` 去重); 依赖不抬到 2.1.8 则修复在目标机上不生效, 仍会产出成倍重复的 rag.md
+3. docs: 跨包 drop-in 前缀由"两侧同为 `01-`、靠文件名字母序"改为 tsc_tools `00-` / 本包 `01-`, 明确保序 (README 中英、README-dev、profile 与 `%post` 注释同步); 两侧对 `TSC_MODULES_DIR` 的拼装方向相反, 两种加载顺序下结果一致
+4. docs(KNOWN_ISSUES): 记录模块 run.sh 与 tsc_tools 规范不一致 (缺 `set -o` 与 `source func`) 及 `tsc --模块名 --help` 文档与实现不符, 均暂缓
+5. docs: README 中英"基本用法"补充构建前置条件——无 `build.conf` 时 `bash build.sh` 会直接报"yum 源地址未配置"退出, 需先 `cp build.conf.example build.conf` 填好 `repo_local`, 或显式传 `--repo-local`
+
 ## Version=0.13.1
 
 Date=20261012

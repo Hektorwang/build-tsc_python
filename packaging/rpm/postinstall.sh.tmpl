@@ -73,9 +73,11 @@ rpm_owns() {
 # 与 tsc_tools 2.1.7+ 的分工一致:
 #   /home/tsc/tsc_profile                  公共入口, 只负责 source tsc_profile.d/*.sh
 #                                          (谁先装谁创建, 所有工具卸载都不删)
-#   tsc_profile.d/01-tsc_tools-profile.sh   tsc_tools 自己的 drop-in (与本包同 01- 前缀, 按全名字母序)
-#   tsc_profile.d/01-tsc_python-profile.sh 本包 drop-in
+#   tsc_profile.d/00-tsc_tools-profile.sh   tsc_tools 自己的 drop-in (数字前缀 00, 先加载)
+#   tsc_profile.d/01-tsc_python-profile.sh 本包 drop-in (数字前缀 01, 后加载)
 #   数字前缀决定加载顺序: 先 PATH/modules 再环境, 两侧互不依赖
+#   (tsc_tools 2.1.7 及更早用 01-tsc_tools-profile.sh, 与本包同前缀靠字母序;
+#    tsc_tools >= 2.1.8 起改 00-, 保序不再依赖文件名字母序)
 #
 # drop-in 是 %post 部署的衍生文件 (不在 rpm 文件清单里), 但**仅归属本包**:
 # 每次安装/升级都用包内版本刷新, 卸载时由 %preun 无条件回收——不保留本地修改

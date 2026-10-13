@@ -16,17 +16,20 @@ description: |
 #   bash >= 4.0   scriptlet 使用关联数组, 低于 4.0 的 bash 由 %pre 显式拦下
 #   glibc >= 2.17 环境构建基线, 目标机低于该值时环境无法运行 (%pre 亦会校验)
 #   grep / sed    scriptlet (如 tsc_tools 的 gen_rag) 处理文本时使用
-#   tsc_tools >= 2.1.6
+#   tsc_tools >= 2.1.8
 #                profile 以 drop-in 形式提供 (/home/tsc/tsc_profile.d/01-tsc_python-profile.sh),
-#                需 tsc_tools >= 2.1.6 的 tsc_profile 才会加载该目录下的 *.sh;
-#                %post 不改写已存在的 tsc_profile (仅缺失时用包内模板创建), 不碰 tsc_tools 的文件
+#                需 tsc_tools 的 tsc_profile 才会加载该目录下的 *.sh;
+#                %post 不改写已存在的 tsc_profile (仅缺失时用包内模板创建), 不碰 tsc_tools 的文件。
+#                下限取 2.1.8 而非 2.1.6: rag.md 膨胀的根因 (TSC_MODULES_DIR 被重复追加)
+#                修在 tsc_tools 侧 (其 drop-in 判重 + gen_rag.sh 去重), 本包 %post 调用的
+#                正是 tsc_tools 随包的 gen_rag.sh, 低版本仍会产出成倍重复的 rag.md
 depends:
   - bash >= 4.0
   - coreutils
   - glibc >= 2.17
   - grep
   - sed
-  - tsc_tools >= 2.1.6
+  - tsc_tools >= 2.1.8
 
 contents:
   # 包内容统一挂在 /home/tsc 下: tsc_python/(环境本体 + profile 源 + ansible 配置 + 插件模块)

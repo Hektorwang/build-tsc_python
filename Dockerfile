@@ -73,7 +73,7 @@ RUN export MAMBA_ROOT_PREFIX && \
 # 注意: COPY 目录源时内容会落入目标目录 (COPY dir dest → dest/<dir 的内容>),
 # 因此 ansible/ 与 modules/ 必须各自带目标路径, 不能与其他源共用一行
 COPY ./files/centos7.repo ./files/environment.yml ./files/func ./files/pack.sh \
-    ./files/patch_ansible.py ./files/profile ./files/readme.md ./files/requirements.in \
+    ./files/patch_ansible.py ./files/profile ./files/README.md ./files/requirements.in \
     ./files/requirements.txt ./files/smoke_test.sh ./files/tsc_profile \
     /home/tsc/build_micromamba/
 COPY ./files/ansible /home/tsc/build_micromamba/ansible

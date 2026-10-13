@@ -80,16 +80,16 @@ KNOWN_ISSUES.md                     审查发现的暂缓事项清单 (不随包
    | 路径 | 谁部署 | 卸载谁删 |
    |---|---|---|
    | `/home/tsc/tsc_profile` | 公共入口，谁先装谁建，只 source `tsc_profile.d/*.sh` | 都不删 |
-   | `tsc_profile.d/01-tsc_tools-profile.sh` | tsc_tools `%post` | tsc_tools `%preun` |
+   | `tsc_profile.d/00-tsc_tools-profile.sh` | tsc_tools `%post` | tsc_tools `%preun` |
    | `tsc_profile.d/01-tsc_python-profile.sh` | 本包 `%post`（源为 `/home/tsc/tsc_python/profile`） | 本包 `%preun` |
 
-   加载顺序 = 文件名排序 = 变量拼装顺序。片段把 `/home/tsc/tsc_python/profile` 拷过去即可，`Profile` 源与公用入口模板 `tsc_profile` 都随包放在环境根目录。tsc_tools 2.1.7 起其 drop-in 名为 `01-tsc_tools-profile.sh`，与本包**同前缀**，先后按全名字母序（`01-tsc_python` 在 `01-tsc_tools` 前）：本包片段先激活环境并前插自己的模块目录，tsc_tools 片段再前插 PATH、后插其模块目录；两侧对 `TSC_MODULES_DIR` 的拼装方向不同（本包前插、tsc_tools 后插），最终 PATH 中本包环境优先、模块目录本包在前，与上表语义自洽。
+   加载顺序 = 文件名排序 = 变量拼装顺序。片段把 `/home/tsc/tsc_python/profile` 拷过去即可，`Profile` 源与公用入口模板 `tsc_profile` 都随包放在环境根目录。tsc_tools >= 2.1.8 起其 drop-in 名为 `00-tsc_tools-profile.sh`（2.1.7 为 `01-tsc_tools-profile.sh`，与本包同前缀、先后靠字母序），以数字前缀明确保序：tsc_tools 片段先加载（前插 PATH、后插其模块目录），本包片段后加载（激活环境、前插自己的模块目录）；两侧对 `TSC_MODULES_DIR` 的拼装方向不同（本包前插、tsc_tools 后插），最终 PATH 中本包环境优先、模块目录本包在前，与上表语义自洽——两种加载顺序下结果一致，不因前缀变化而翻转。
 
 6. **包外的东西要么记清单要么明确不删**。drop-in 由 `%post` 部署（不在 rpm 文件清单里），但**文件名归属本包独占**：每次安装/升级都用包内版本刷新，`%preun` 真卸载时**无条件**删除——不保留本地修改（现场要自定义片段就另建文件，如 `99-local-profile.sh`，别占用本包的名字）。公用入口 `tsc_profile`、`tsc_profile.d` 目录、`/var/log/tsc`、`%pre` 轮转出的备份一律保留。
 
 `TSC_MODULES_DIR` 是 tsc 发现模块的唯一途径（`tsc`/`gen_rag.sh` 遍历该变量里的目录），本包模块独占 `/home/tsc/tsc_python/modules`（与 tsc_tools 的 modules 解耦）。本包片段因此要声明一次，并用 `":${TSC_MODULES_DIR:-}:"` 判重：**重复项会让 gen_rag.sh 把同一份 readme 收录两次。**
 
-本包在 `nfpm.yaml.tmpl` 的 `depends` 里声明硬依赖 `tsc_tools >= 2.1.6`——`/home/tsc/tsc_profile` 加载 `tsc_profile.d/*.sh` 的加载器由该版本起提供。`%post` **不改写**已存在的 `tsc_profile`（只在该文件缺失时用包内模板创建，模板自带加载逻辑），因此不会动 tsc_tools 的文件、也不会让 `rpm -V tsc_tools` 报差异；低于 2.1.6 的 tsc_tools 由 RPM 依赖直接拦下，没有也不做加载块 bootstrap。
+本包在 `nfpm.yaml.tmpl` 的 `depends` 里声明硬依赖 `tsc_tools >= 2.1.8`。下限取 2.1.8 而非"提供 drop-in 加载器"的 2.1.6，是因为本包 `%post` 调用的是 tsc_tools 随包的 `gen_rag.sh`，而 `rag.md` 膨胀的根因（`TSC_MODULES_DIR` 被重复追加）修在 tsc_tools 侧（其 drop-in 判重 + `gen_rag.sh` 去重）——低版本上修复不生效，仍会产出成倍重复的 rag.md。`%post` **不改写**已存在的 `tsc_profile`（只在该文件缺失时用包内模板创建，模板自带加载逻辑），因此不会动 tsc_tools 的文件、也不会让 `rpm -V tsc_tools` 报差异；低于下限的 tsc_tools 由 RPM 依赖直接拦下，没有也不做加载块 bootstrap。
 
 ### 3.1 安装树布局（`nfpm.yaml` 的 `dst: /home/tsc`）
 

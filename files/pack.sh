@@ -143,7 +143,7 @@ prepare_payload() {
 
     # 随包文档与工具
     \cp "${WORK_DIR}"/release-note.md \
-        "${WORK_DIR}"/readme.md \
+        "${WORK_DIR}"/README.md \
         "${WORK_DIR}"/THIRD_PARTY_NOTICES.md \
         "${WORK_DIR}"/THIRD_PARTY_NOTICES.zh_CN.md \
         "${WORK_DIR}"/smoke_test.sh \
