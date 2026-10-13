@@ -1,4 +1,6 @@
 /tmp
+*.py[cdo]
+__pycache__
 /output
 /release
 /stage
@@ -8,4 +10,3 @@
 /.mypy_cache
 /build.conf
 !.gitignore
-files/__pycache__/

@@ -41,7 +41,7 @@ python3。所有步骤幂等。
 | 路径 | 归属 | 卸载是否删除 |
 | --- | --- | --- |
 | `/home/tsc/tsc_profile` | 公共入口，谁先装谁建，只负责 source `tsc_profile.d/*.sh` | 否（公共基础设施） |
-| `/home/tsc/tsc_profile.d/01-tsc_tools-profile.sh` | tsc_tools | 是，由 tsc_tools |
+| `/home/tsc/tsc_profile.d/00-tsc_tools-profile.sh`（tsc_tools >= 2.1.8） | tsc_tools | 是，由 tsc_tools |
 | `/home/tsc/tsc_profile.d/01-tsc_python-profile.sh`（本包） | tsc_python | 是，由 `%preun`（本包独占：每次安装/升级刷新，卸载时无条件回收，不保留本地修改；现场自定义片段请另建文件，如 `99-local-profile.sh`） |
 
 数字前缀决定加载顺序：`00-tsc_tools-profile.sh`（tsc_tools >= 2.1.8）排在
@@ -80,7 +80,7 @@ source /home/tsc/tsc_profile.d/01-tsc_python-profile.sh # 只加载本包环境
 │   ├── nfpm.yaml.tmpl      # nfpm 包定义模板
 │   ├── preinstall.sh.tmpl  # %pre  (环境准入 + 旧目录轮转, 需注入)
 │   ├── postinstall.sh.tmpl # %post (模块权限、rag.md、ansible 补丁、profile)
-│   ├── preremove.sh        # %preun (按 hash 清单回收 drop-in, 仅 POSIX 语法, 恒返回 0)
+│   ├── preremove.sh        # %preun (按文件名无条件回收 drop-in, 仅 POSIX 语法, 恒返回 0)
 │   ├── postremove.sh       # %postun (清理空目录壳)
 │   ├── env_check.sh        # 环境检测与准入校验 (内联进 %pre)
 │   └── lib_min.sh          # scriptlet 用的最小 LOG* 运行时
@@ -209,17 +209,17 @@ bash build.sh --python-version 3.12.11
 | micromamba | `files/tmp/micromamba` (+ `.version`) | micro.mamba.pm |
 | jq (双架构静态二进制) | `files/tmp/jq-x86_64` / `jq-aarch64` (带 sha256 校验) | github.com/jqlang/jq |
 
-离线构建机可从有外网的机器手动放置, 先在有外网的机器上下载（以 2.5.0 / x86_64 为例, aarch64 用 `linux-aarch64`）:
+离线构建机可从有外网的机器手动放置, 先在有外网的机器上下载（以 2.9.0 / x86_64 为例, aarch64 用 `linux-aarch64`）:
 
 ```bash
-curl -fL -o micromamba "https://micro.mamba.pm/api/micromamba/linux-64/2.5.0"
+curl -fL -o micromamba "https://micro.mamba.pm/api/micromamba/linux-64/2.9.0"
 ```
 
 拷贝到构建机后按如下路径与内容放置（version 文件内容为 `<版本>-<架构>`）:
 
 ```text
 files/tmp/micromamba          # 下载的二进制归档
-files/tmp/micromamba.version  # 文本文件, 内容如: 2.5.0-x86_64
+files/tmp/micromamba.version  # 文本文件, 内容如: 2.9.0-x86_64
 ```
 
 强制重新下载（删除缓存即可）:

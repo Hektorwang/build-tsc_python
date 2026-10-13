@@ -165,10 +165,13 @@ prepare_payload() {
     # 可执行位: 模块入口与冒烟测试 (防打包/拷贝过程丢失)
     # 同时把环境内二进制归一化到 0755: 构建容器 umask 002 会让它们带上组写位 (0775),
     # 共享目录 /home/tsc 下 root 所有的二进制保持 0755 更干净, 也让产物自检不依赖构建机 umask
-    chmod 0755 "${PAYLOAD_DIR}"/home/tsc/tsc_python/bin/* \
-        "${PAYLOAD_DIR}"/home/tsc/tsc_python/envs/tsc_python/bin/* \
-        "${PAYLOAD_DIR}"/home/tsc/tsc_python/modules/*/run.sh \
-        "${PAYLOAD_DIR}"/home/tsc/tsc_python/smoke_test.sh
+    # find -exec 而非 glob 展开: nullglob 下 glob 无匹配时展开为空, chmod 无参数会报错退出
+    find "${PAYLOAD_DIR}/home/tsc/tsc_python/bin" \
+         "${PAYLOAD_DIR}/home/tsc/tsc_python/envs/tsc_python/bin" \
+         -maxdepth 1 -type f -exec chmod 0755 {} +
+    find "${PAYLOAD_DIR}/home/tsc/tsc_python/modules" \
+         -name "run.sh" -exec chmod 0755 {} +
+    chmod 0755 "${PAYLOAD_DIR}/home/tsc/tsc_python/smoke_test.sh"
 
     LOGINFO "Payload: ${PAYLOAD_DIR} ($(find "${PAYLOAD_DIR}" -type f | wc -l) files)"
 }

@@ -136,12 +136,13 @@ chmod 0755 "${ENV_ROOT}"/modules/*/run.sh 2>/dev/null ||
 
 # 2. 日志目录 (不属于包内容, 卸载时保留运行期日志)
 # 0750: ansible 日志可能含敏感信息 (主机清单/凭据片段), 不放行 other 读
+# ansible.cfg: log_path=/var/log/tsc/ansible.log
+#              retry_files_save_path=/var/log/tsc/ansible/retries
 mkdir -p "${LOG_DIR}"
 chmod 0750 "${LOG_DIR}"
-if id tsc &>/dev/null; then
-    chown tsc: "${LOG_DIR}" ||
-        LOGWARNING "chown tsc ${LOG_DIR} 失败, 以 tsc 用户运行 ansible 时日志可能不可写"
-fi
+mkdir -p "${LOG_DIR}/ansible/retries"
+chmod 0750 "${LOG_DIR}/ansible"
+chmod 0750 "${LOG_DIR}/ansible/retries"
 
 # 3. profile: 公共入口 + 本包 drop-in (须早于 gen_rag, 让它取到 TSC_MODULES_DIR)
 deploy_profile

@@ -1,5 +1,16 @@
 # tsc_python
 
+## Version=0.13.3
+
+Date=20261013
+
+1. fix(modules): 三个文档模块 (`tsc_python_ansible`/`tsc_python_batch_user_manager`/`tsc_python_changehostname`) 的 run.sh 补加 `set -o errexit`——原先无错误退出保护, 模块内命令失败时 `tsc` 分发器静默继续
+2. fix(build/pack.sh): `prepare_payload` 的 `chmod 0755` 从 glob 展开改为 `find -exec`——`shopt -s nullglob` 下 glob 无匹配时展开为空, `chmod` 无参数报错并触发 `set -o errexit` 退出, 改用 `find` 避免该问题
+3. fix(rpm/postinstall.sh.tmpl): 删除 `id tsc && chown tsc: ${LOG_DIR}` 死代码——整个代码库从未创建过 `tsc` 用户, 该判断永远为假, 是 makeself 时代的遗留; 日志目录 owner 保持 root
+4. fix(build): `build.sh` 开头固定 `umask 022`, 与 `tsc_tools` 对齐, 避免打包机 umask 收紧时静默削掉未显式 chmod 的文件权限
+5. docs: 对齐文档与实现——README 中英 `%preun` 描述由「hash 清单」改为按文件名无条件回收; 中文表 tsc_tools drop-in 改为 `00-`; micromamba 离线缓存示例版本 `2.5.0` → `2.9.0`; KNOWN_ISSUES 同步 0.13.3 已补 `errexit` 的现状; README-dev 记录 umask 已固定
+6. fix(ansible): `ansible.cfg` 两处运行期写入路径移出 RPM 管辖区——`home` 由 `/home/tsc/tsc_python/ansible/` 改为 `/home/tsc/.ansible` (ANSIBLE_HOME, galaxy 缓存/tmp 等不再落入包内); `retry_files_save_path` 由 `/home/tsc/tsc_python/ansible/retries` 改为 `/var/log/tsc/ansible/retries` (失败剧本的 `.retry` 文件改入日志目录); `%post` 补建 `/var/log/tsc/ansible/retries` 子目录并设 0750 权限。现场已有 `.retry` 文件仍在旧路径, 可手动迁移至新目录
+
 ## Version=0.13.2
 
 Date=20261013

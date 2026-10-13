@@ -89,7 +89,7 @@ from `tsc_profile`); review and delete the backups once the new package is confi
 │   ├── nfpm.yaml.tmpl      # nfpm package definition template
 │   ├── preinstall.sh.tmpl  # %pre  (env admission + legacy rotation, INJECT-ed)
 │   ├── postinstall.sh.tmpl # %post (module bits, rag.md, ansible patch, profile)
-│   ├── preremove.sh        # %preun (drop-in reclaim by hash manifest, always exit 0)
+│   ├── preremove.sh        # %preun (unconditional drop-in reclaim by filename, always exit 0)
 │   ├── postremove.sh       # %postun (prune empty directory shells)
 │   ├── env_check.sh        # env detection/admission (inlined into %pre)
 │   └── lib_min.sh          # minimal LOG* runtime for scriptlets
@@ -218,17 +218,17 @@ All third-party build components use a **cache-first, download-on-demand** patte
 | micromamba | `files/tmp/micromamba` (+ `.version`) | micro.mamba.pm |
 | jq (static binaries, two architectures) | `files/tmp/jq-x86_64` / `jq-aarch64` (sha256-verified) | github.com/jqlang/jq |
 
-Offline build hosts can place the files manually. First download on an internet-connected machine (2.5.0 / x86_64 as an example, `linux-aarch64` for aarch64):
+Offline build hosts can place the files manually. First download on an internet-connected machine (2.9.0 / x86_64 as an example, `linux-aarch64` for aarch64):
 
 ```bash
-curl -fL -o micromamba "https://micro.mamba.pm/api/micromamba/linux-64/2.5.0"
+curl -fL -o micromamba "https://micro.mamba.pm/api/micromamba/linux-64/2.9.0"
 ```
 
 Then place them on the build host at the following paths (the version file contains `<version>-<arch>`):
 
 ```text
 files/tmp/micromamba          # downloaded binary archive
-files/tmp/micromamba.version  # text file, e.g. 2.5.0-x86_64
+files/tmp/micromamba.version  # text file, e.g. 2.9.0-x86_64
 ```
 
 Force re-downloading (just delete the caches):

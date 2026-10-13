@@ -10,6 +10,9 @@ set -o nounset
 set -o pipefail
 set +o posix
 shopt -s nullglob
+# 固定 umask: 产物文件权限 = 源文件 mode & umask, 收紧的构建机 umask(如 0077)
+# 会静默削掉权限, 这里统一保证常规权限可预期 (与 tsc_tools/build.sh 一致)
+umask 022
 
 WORK_DIR="$(dirname "$(readlink -f "$0")")"
 OUTPUT_DIR="${WORK_DIR}/output"

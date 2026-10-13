@@ -144,7 +144,7 @@ KNOWN_ISSUES.md                     审查发现的暂缓事项清单 (不随包
 
 `files/pack.sh` 对模块 `run.sh`、`smoke_test.sh` 与环境内二进制（`tsc_python/bin/*`、`envs/tsc_python/bin/*`）显式 `chmod 0755`；profile 相关文件（被 source，不需要可执行位）显式 `chmod 0644`。环境二进制之所以要显式归一化，是因为构建容器 umask 002 会让它们带上组写位（0775），而共享目录 `/home/tsc` 下 root 所有的二进制保持 0755 更干净，也避免产物自检因权限非 0755 而失败。其余文件沿用容器内构建出的 mode。nfpm 按 stage 里的实际 mode 打包。
 
-> 打包机 umask 收紧（如 `0077`）会削掉未显式 chmod 的文件权限且不报错。脚本内**未**固定 umask，需要确定性时可在 `build.sh` 开头加 `umask 022`。
+`build.sh` 开头固定 `umask 022`（与 `tsc_tools` 一致），避免打包机 umask 收紧（如 `0077`）静默削掉未显式 chmod 的文件权限。
 
 ### 4.8 ansible base.yml 必须单独以 `%config(noreplace)` 声明
 
