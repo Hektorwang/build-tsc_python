@@ -10,11 +10,11 @@ base_yml_path = ansible_package_path / "config" / "base.yml"
 with open(base_yml_path, "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
 
+# 只保留本包 (RPM 形态) 的解释器路径。
+# 历史上曾同时插入自解压包时代的旧路径 (tsc_tools/micromamba/...、miniconda3、.pyenv),
+# 那些安装形态已由 %pre 轮转、路径不复存在, 留在回退列表里只会干扰解释器发现。
 tsc_interpreter = [
     "/home/tsc/tsc_python/envs/tsc_python/bin/python3",
-    "/home/tsc/tsc_tools/micromamba/envs/tsc_python/bin/python3",
-    "/home/tsc/.pyenv/shims/python3",
-    "/home/tsc/miniconda3/envs/tsc_python/bin/python3",
 ]
 
 fallback_list = config["INTERPRETER_PYTHON_FALLBACK"]["default"]

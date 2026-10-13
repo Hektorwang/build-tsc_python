@@ -409,6 +409,22 @@ package_rpm() {
         \cp "${OUTPUT_DIR}/${ARCH}/staged/ansible_base.yml" "${STAGE_DIR}/ansible_base.yml"
     fi
 
+    # ---------- 3.5 版本一致性断言 ----------
+    # build-info.json 的 version 由容器内 pack.sh 按 release-note.md 独立解析,
+    # 与 RPM NVR 各解一次; 两处漂移会让包内元数据与包版本不符, 在此显式比对
+    local build_info="${STAGE_DIR}/payload/home/tsc/tsc_python/build-info.json"
+    if [[ -f "${build_info}" ]]; then
+        local info_version
+        info_version="$(awk -F'"' '$2 == "version" {print $4; exit}' "${build_info}")"
+        if [[ -n "${info_version}" && "${info_version}" != "${version}" ]]; then
+            LOGERROR "build-info.json 版本 '${info_version}' 与 RPM 版本 '${version}' 不一致"
+            return 1
+        fi
+        LOGINFO "build-info.json 版本一致: ${info_version}"
+    else
+        LOGWARNING "未找到 ${build_info}, 跳过版本一致性断言"
+    fi
+
     # ---------- 4. 生成 RPM scriptlet ----------
     render_template "${PACKAGING_DIR}/preinstall.sh.tmpl" "${STAGE_DIR}/rpm-scripts/preinstall"
     render_template "${PACKAGING_DIR}/postinstall.sh.tmpl" "${STAGE_DIR}/rpm-scripts/postinstall"

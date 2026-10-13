@@ -10,6 +10,8 @@ Date=20261013
 4. fix(build): `build.sh` 开头固定 `umask 022`, 与 `tsc_tools` 对齐, 避免打包机 umask 收紧时静默削掉未显式 chmod 的文件权限
 5. docs: 对齐文档与实现——README 中英 `%preun` 描述由「hash 清单」改为按文件名无条件回收; 中文表 tsc_tools drop-in 改为 `00-`; micromamba 离线缓存示例版本 `2.5.0` → `2.9.0`; KNOWN_ISSUES 同步 0.13.3 已补 `errexit` 的现状; README-dev 记录 umask 已固定
 6. fix(ansible): `ansible.cfg` 两处运行期写入路径移出 RPM 管辖区——`home` 由 `/home/tsc/tsc_python/ansible/` 改为 `/home/tsc/.ansible` (ANSIBLE_HOME, galaxy 缓存/tmp 等不再落入包内); `retry_files_save_path` 由 `/home/tsc/tsc_python/ansible/retries` 改为 `/var/log/tsc/ansible/retries` (失败剧本的 `.retry` 文件改入日志目录); `%post` 补建 `/var/log/tsc/ansible/retries` 子目录并设 0750 权限。现场已有 `.retry` 文件仍在旧路径, 可手动迁移至新目录
+7. fix(rpm): `patch_ansible.py` 的 `INTERPRETER_PYTHON_FALLBACK` 列表只保留本包 RPM 形态的解释器路径——移除自解压包时代的残留路径 (`/home/tsc/tsc_tools/micromamba/...`、`miniconda3`、`.pyenv`), 那些安装形态已由 `%pre` 轮转、路径不复存在, 留在列表里只会干扰解释器发现。注意: 从旧版本升级的机器上 `base.yml` 为 `%config(noreplace)`, 已插入的旧路径不会被动掉, 如需清理可现场手动编辑或删除包内 base.yml 后重装
+8. refactor(build): 版本号解析统一为 awk 一种写法 (`files/pack.sh` 与 `build.sh` 一致: 取 `release-note.md` 第一个 `Version=` 行并去空白; 原先 pack.sh 用 `grep -oP`, 两套解析可漂移), `package_rpm` 增加断言——`build-info.json` 的版本与 RPM NVR 不一致即中止打包, 保证包内元数据与包版本一致
 
 ## Version=0.13.2
 

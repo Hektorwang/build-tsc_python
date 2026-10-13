@@ -51,7 +51,7 @@ KNOWN_ISSUES.md                     审查发现的暂缓事项清单 (不随包
 | 7 | **版本解析**：取 `release-note.md` 第一个 `Version=`；含 `-` 直接报错（RPM Version 不允许） |
 | 8 | **stage**：`output/<arch>/payload/home/tsc` → `stage/payload/home/tsc` |
 | 9 | **scriptlet**：`render_template` 把 `# >>> INJECT <file>` 换为该文件内容，再 `sed` 替换 `@ARCH@` |
-| 10 | **scriptlet 语法自检**：三个脚本逐个 `bash -n`；再断言 `%pre` 含 `SUPPORTED_ARCHITECTURES=`/`check_env()`、无残留 `@ARCH@`，`%post` 含 `LOGINFO()` |
+| 10 | **scriptlet 语法自检**：三个脚本逐个 `bash -n`；再断言 `%pre` 含 `SUPPORTED_ARCHITECTURES=`/`check_env()`、无残留 `@ARCH@`，`%post` 含 `LOGINFO()`；并比对 `build-info.json` 版本与 RPM 版本一致（两处独立解析 `release-note.md`，防漂移） |
 | 11 | 渲染 `nfpm.yaml` 并 `nfpm package --packager rpm` |
 | 12 | **产物自检**：包信息 / `Requires` / 文件数 / 架构与构建架构一致 / 关键文件齐全 / 关键文件可执行位 / 四段 scriptlet 是否写入 |
 | 13 | 生成 `.sha256`；`stage/` 由 `package_rpm` 的 RETURN trap 在成功/失败路径统一回收 |
