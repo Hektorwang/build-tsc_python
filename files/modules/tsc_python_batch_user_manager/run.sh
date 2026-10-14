@@ -16,4 +16,4 @@ show_readme() {
     fi
 }
 
-show_readme "${WORK_DIR}"/"README.md
+show_readme "${WORK_DIR}/README.md"

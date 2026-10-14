@@ -39,7 +39,7 @@ on failure the installation is aborted and no half-installed tree is left behind
 `tsc_tools`' `gen_rag.sh` and patches ansible's `INTERPRETER_PYTHON_FALLBACK` list.
 All steps are idempotent.
 
-The environment is exposed through a profile **drop-in**, following the same split `tsc_tools >= 2.1.7` uses:
+The environment is exposed through a profile **drop-in**, following the same split `tsc_tools >= 2.1.8` uses (2.1.6 was the first version to ship the drop-in loader, 2.1.8 is the hard dependency floor of this package):
 
 | Path | Owner | Removed on uninstall |
 | --- | --- | --- |

@@ -16,17 +16,19 @@
 #   5. 给 ansible 的 INTERPRETER_PYTHON_FALLBACK 插入本环境 python3 (patch_ansible.py)
 ##################################################
 # shellcheck disable=SC1090,SC1091,SC2034
+# 同 %pre: bash 专属语法 (set +o posix / shopt) 必须排在 BASH_VERSION 判断之后,
+# 否则 /bin/sh 为 dash 时会在打印友好提示之前就以 `Illegal option` 退出
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+
+if [ -z "${BASH_VERSION:-}" ]; then
+    echo "ERROR: /bin/sh is not bash, tsc_python requires bash >= 4.0." >&2
+    exit 1
+fi
+
 set -o nounset
 set -o pipefail
 set +o posix
 shopt -s nullglob
-
-export PATH=/bin:/sbin:/usr/bin:/usr/sbin
-
-if [[ -z "${BASH_VERSION:-}" ]]; then
-    echo "ERROR: /bin/sh is not bash, tsc_python requires bash >= 4.0." >&2
-    exit 1
-fi
 
 __LOG_TAG="tsc_python-post"
 
@@ -104,8 +106,14 @@ deploy_profile() {
         fi
     done
 
-    \cp "${SOURCE_DROPIN}" "${DROPIN_FILE}"
-    LOGSUCCESS "Deployed drop-in ${DROPIN_FILE} (本包独占, 升级刷新/卸载回收, 不保留本地修改)"
+    # 本脚本不设 errexit (安装期失败不应阻断 rpm), 但 drop-in 是环境可用的前提,
+    # cp 失败必须报 ERROR 而不是 LOGSUCCESS——否则安装者看到"成功"而环境实际未生效
+    if \cp "${SOURCE_DROPIN}" "${DROPIN_FILE}"; then
+        LOGSUCCESS "Deployed drop-in ${DROPIN_FILE} (本包独占, 升级刷新/卸载回收, 不保留本地修改)"
+    else
+        LOGERROR "Failed to deploy drop-in ${DROPIN_FILE}: 本包环境将不可用, 请检查磁盘与权限"
+        return 1
+    fi
 }
 
 ##################################################
@@ -145,7 +153,9 @@ chmod 0750 "${LOG_DIR}/ansible"
 chmod 0750 "${LOG_DIR}/ansible/retries"
 
 # 3. profile: 公共入口 + 本包 drop-in (须早于 gen_rag, 让它取到 TSC_MODULES_DIR)
-deploy_profile
+if ! deploy_profile; then
+    LOGERROR "profile 部署失败: TSC_MODULES_DIR 与环境激活均不可用, 后续 rag.md 与 ansible patch 会不完整"
+fi
 
 # 3b. 迁移清理: 旧版本 (hash 清单机制) 遗留的 .installed_manifest, 新机制不再使用,
 #     不删它会作为无主文件留在环境目录里

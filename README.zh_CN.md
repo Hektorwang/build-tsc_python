@@ -36,7 +36,7 @@ rpm -e tsc_python
 的 `gen_rag.sh` 重建 `rag.md`、给 ansible 的 `INTERPRETER_PYTHON_FALLBACK` 列表插入本环境
 python3。所有步骤幂等。
 
-环境通过 profile **片段 (drop-in)** 暴露，与 `tsc_tools >= 2.1.7` 的分工一致：
+环境通过 profile **片段 (drop-in)** 暴露，与 `tsc_tools >= 2.1.8` 的分工一致（2.1.6 是首个提供 drop-in 加载器的版本，2.1.8 是本包声明的硬依赖下限）：
 
 | 路径 | 归属 | 卸载是否删除 |
 | --- | --- | --- |

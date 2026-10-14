@@ -141,7 +141,10 @@ env_yml_tmp="${TMP_DIR}/environment.yml"
 condarc_tmp="${TMP_DIR}/condarc"
 pip_conf_tmp="${TMP_DIR}/pip.conf"
 
-trap 'rm -f "${env_yml_tmp}" "${condarc_tmp}" "${pip_conf_tmp}"' EXIT
+# 临时构建期配置 + stage/ 一并回收: package_rpm 的 RETURN trap 只在函数正常返回时
+# 触发, 构建中途 Ctrl-C (gracefully_abort -> exit) 时不会触发, 会留下 GB 级 payload 拷贝。
+# 注意: 同一信号只能有一个 trap, 后注册会覆盖前者, 故此处合并为一条
+trap 'rm -f "${env_yml_tmp}" "${condarc_tmp}" "${pip_conf_tmp}"; rm -rf "${STAGE_DIR}"' EXIT
 
 if [[ -n "${python_version}" ]]; then
     sed "s/- python=.*/- python=${python_version}/" "${env_yml_src}" > "${env_yml_tmp}"
@@ -171,7 +174,9 @@ EOF
 LOGINFO "Generated: ${condarc_tmp} / ${pip_conf_tmp}"
 
 # python 主.次版本 (用于 ansible base.yml 的 %config(noreplace) 安装路径)
-py_mm="$(grep -oE 'python=[0-9]+\.[0-9]+' "${env_yml_tmp}" | head -n1 | sed 's/^python=//')"
+# 用 sed -n '1p' 而非 head -n1: head 提前退出会让上游 grep 收到 SIGPIPE 返回 141,
+# 在 pipefail + errexit 下脚本无任何提示直接中断
+py_mm="$(grep -oE 'python=[0-9]+\.[0-9]+' "${env_yml_tmp}" | sed -n '1p' | sed 's/^python=//')" || py_mm=""
 py_mm="${py_mm:-3.13}"
 
 # ─────────────────────────────────────────────
@@ -225,10 +230,10 @@ ensure_jq() {
             x86_64)  url="https://github.com/jqlang/jq/releases/download/jq-${jq_version}/jq-linux-amd64" ;;
             aarch64) url="https://github.com/jqlang/jq/releases/download/jq-${jq_version}/jq-linux-arm64" ;;
         esac
+        expected="${jq_sha256_x86_64}"
+        [[ "${arch}" == "aarch64" ]] && expected="${jq_sha256_aarch64}"
         if [[ -f "${file}" ]]; then
             sum="$(sha256sum "${file}" | awk '{print $1}')"
-            expected="${jq_sha256_x86_64}"
-            [[ "${arch}" == "aarch64" ]] && expected="${jq_sha256_aarch64}"
             if [[ "${sum}" == "${expected}" ]]; then
                 LOGINFO "jq cache hit: ${file}"
                 continue
@@ -236,8 +241,21 @@ ensure_jq() {
             LOGINFO "jq cache checksum mismatch (${arch}), re-downloading"
         fi
         LOGINFO "Downloading jq ${jq_version} for ${arch}..."
-        curl --fail --location --output "${file}" "${url}"
+        # 先落临时文件再校验: 直接 --output 到目标路径的话, 下载到损坏/被篡改的
+        # 二进制会被原样用进容器, 只有下一次构建才发现不匹配
+        if ! curl --fail --location --output "${file}.dl" "${url}"; then
+            LOGERROR "jq 下载失败 (${arch}): ${url}"
+            return 1
+        fi
+        sum="$(sha256sum "${file}.dl" | awk '{print $1}')"
+        if [[ "${sum}" != "${expected}" ]]; then
+            LOGERROR "jq 下载完整性校验失败 (${arch}): 期望 ${expected}, 实际 ${sum}"
+            rm -f "${file}.dl"
+            return 1
+        fi
+        mv -f "${file}.dl" "${file}"
         chmod +x "${file}"
+        LOGSUCCESS "jq ${jq_version} (${arch}) downloaded and verified"
     done
     LOGSUCCESS "jq ready: ${TMP_DIR}/jq-x86_64 / ${TMP_DIR}/jq-aarch64"
 }
@@ -355,14 +373,18 @@ package_rpm() {
         return 1
     fi
     readonly NFPM_BIN="${nfpm_bin}"
-    readonly NFPM_VERSION="$("${NFPM_BIN}" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n1)"
+    # || true: grep 匹配不到时 pipefail 会把非零传给 errexit, 脚本在打印 nfpm 版本
+    # 这一行直接中断, ${NFPM_VERSION:-unknown} 的兜底永远到不了
+    readonly NFPM_VERSION="$("${NFPM_BIN}" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n1)" || true
     LOGINFO "Using packager: ${NFPM_BIN} (nfpm ${NFPM_VERSION:-unknown})"
 
     # ---------- 2. 版本号 ----------
     # version 取自 release-note.md 的 Version=; release 取构建时间戳 (YYYYMMDDHHMMSS):
     # 精确到秒, 保证同日多次构建的 NVR 可区分 (rpm 按字符串比较版本, 时间戳递增即可正常升级)
     local version release
-    version="$(awk -F '=' '/Version=/{print $2; exit}' "${WORK_DIR}"/release-note.md | tr -d '[:space:]')"
+    # 与 tsc_tools/build.sh 同一写法: 取首个 '=' 之后的整行 (值里再出现 '=' 不会被
+    # -F '=' + $2 截断), 再去掉空白/CRLF
+    version="$(awk '/Version=/{sub(/^[^=]*=/, ""); print; exit}' "${WORK_DIR}"/release-note.md | tr -d '[:space:]')"
     release="$(date "+%Y%m%d%H%M%S")"
 
     if [[ -z "${version}" ]]; then
@@ -442,6 +464,20 @@ package_rpm() {
         }
     done
 
+    # 随包脚本语法自检: 模块 run.sh 一度因引号未闭合整份不可用, 而打包期只查了
+    # 文件存在性与可执行位, 缺陷随包发布。这里对本包自带的 shell 脚本逐个 bash -n,
+    # 把语法错误挡在出包之前
+    # 范围限定为包自有脚本: conda 环境内还散落大量 *.sh (activate.d 等), 它们不由
+    # 本仓维护, 纳入自检只会引入不可控的噪音
+    local payload_script
+    while IFS= read -r -d '' payload_script; do
+        bash -n "${payload_script}" || {
+            LOGERROR "随包脚本语法检查未通过: ${payload_script}"
+            return 1
+        }
+    done < <(find "${STAGE_DIR}/payload/home/tsc/tsc_python" -maxdepth 3 -type f \
+        \( -name 'smoke_test.sh' -o -path '*/modules/*/run.sh' \) -print0)
+
     # 注入/渲染完整性断言: render_template 读不到注入文件时会静默产出空内容,
     # bash -n 查不出这类运行期错误, 只能在打包期显式断言
     if ! grep -q 'SUPPORTED_ARCHITECTURES=' "${STAGE_DIR}/rpm-scripts/preinstall" ||
@@ -455,6 +491,21 @@ package_rpm() {
         return 1
     fi
 
+    # ---------- 4.5 @PYTHON_MM@ 与真实环境的一致性断言 ----------
+    # py_mm 由 environment.yml 文本正则抠出, 而真实目录名由 conda 解析结果决定,
+    # 二者漂移会让 base.yml 以一个不存在的路径入包: %post 的 patch 与
+    # %config(noreplace) 同时失效, 而产物自检查不出来
+    local env_py_dir site_dir
+    env_py_dir="$(find "${STAGE_DIR}/payload/home/tsc/tsc_python/envs/tsc_python/lib" \
+        -maxdepth 1 -type d -name "python${py_mm}" -print -quit 2>/dev/null)"
+    site_dir="${env_py_dir}/site-packages/ansible/config"
+    if [[ -z "${env_py_dir}" || ! -d "${site_dir}" ]]; then
+        LOGERROR "@PYTHON_MM@ (${py_mm}) 与真实环境不符: 未找到 ${site_dir}"
+        LOGERROR "请核对 environment.yml 的 python 版本与 conda 解析结果"
+        return 1
+    fi
+    LOGINFO "@PYTHON_MM@ 校验通过: python${py_mm}"
+
     # ---------- 5. 生成 nfpm 配置并打包 ----------
     local nfpm_config="${STAGE_DIR}/nfpm.yaml"
     sed -e "s|@VERSION@|${version}|g" \
@@ -464,11 +515,28 @@ package_rpm() {
         -e "s|@STAGE_DIR@|${STAGE_DIR}|g" \
         "${PACKAGING_DIR}"/nfpm.yaml.tmpl >"${nfpm_config}"
 
+    # 渲染完整性断言: 模板新增占位符而 build.sh 漏配 -e 时, 产物会带着字面量
+    # @XXX@ 静默出包 (nfpm 侧只会报路径不存在, 与真实原因相距很远)
+    if grep -qE '@[A-Z][A-Z_]*@' "${nfpm_config}"; then
+        LOGERROR "nfpm.yaml 存在未替换的占位符:"
+        grep -nE '@[A-Z][A-Z_]*@' "${nfpm_config}" >&2
+        return 1
+    fi
+
     # 兜底: 若 ansible base.yml 暂存缺失 (不应发生), 去掉 %config(noreplace) 段,
-    # 否则 nfpm 会因 src 不存在而打包失败
+    # 否则 nfpm 会因 src 不存在而打包失败。
+    # 区间由模板里的哨兵注释界定 (# >>> BEGIN / # <<< END ansible_base_noreplace),
+    # 不再锚在中文注释文案上——文案一改区间就匹配不到, 且结束行被改时会一路删到文件尾,
+    # 把 scripts: 段一起删掉而 nfpm 不报错。
     if [[ ! -f "${STAGE_DIR}/ansible_base.yml" ]]; then
         LOGWARNING "ansible_base.yml 暂存缺失, 跳过 %config(noreplace) 声明"
-        sed -i '/ansible 的 INTERPRETER_PYTHON_FALLBACK/,/type: config|noreplace/d' "${nfpm_config}"
+        sed -i '/# >>> BEGIN ansible_base_noreplace/,/# <<< END ansible_base_noreplace/d' "${nfpm_config}"
+        # 摘完必须确认: 摘不掉的话产物会带着指向不存在 src 的条目, nfpm 报的错
+        # 与真实原因 (哨兵被改动) 相距很远
+        if grep -q 'ansible_base.yml' "${nfpm_config}"; then
+            LOGERROR "未能摘除 ansible_base.yml 的 %config(noreplace) 条目, 哨兵注释可能被改动"
+            return 1
+        fi
     fi
 
     mkdir -p "${RELEASE_DIR}"
@@ -498,6 +566,9 @@ package_rpm() {
         fi
 
         # 关键文件必须齐全
+        # base.yml 是唯一以 %config(noreplace) 声明的条目: 暂存缺失时上面的兜底会
+        # 把整段删掉, 不在此断言的话产物会静默丢掉 ansible 解释器回退配置;
+        # patch_ansible.py 是 %post 改写 base.yml 的唯一手段, 同样必须入包
         local need_file f
         need_file=(
             "/home/tsc/tsc_python/tsc_profile"
@@ -506,8 +577,10 @@ package_rpm() {
             "/home/tsc/tsc_python/envs/tsc_python/bin/python3"
             "/home/tsc/tsc_python/envs/tsc_python/bin/ansible"
             "/home/tsc/tsc_python/smoke_test.sh"
+            "/home/tsc/tsc_python/patch_ansible.py"
             "/home/tsc/tsc_python/ansible/ansible.cfg"
             "/home/tsc/tsc_python/modules/tsc_python_changehostname/run.sh"
+            "/home/tsc/tsc_python/envs/tsc_python/lib/python${py_mm}/site-packages/ansible/config/base.yml"
         )
         for f in "${need_file[@]}"; do
             if ! grep -qxF "${f}" <<<"${payload_files}"; then

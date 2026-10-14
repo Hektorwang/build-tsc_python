@@ -12,19 +12,23 @@
 # %pre 返回非零时 rpm 会中止安装, 环境不符的机器不会留下半成品文件。
 ##################################################
 # shellcheck disable=SC1090,SC1091,SC2034
+# RPM scriptlet 一律由 rpm 用 /bin/sh 执行 (文件首行 shebang 只是注释, 不生效)。
+# bash 专属语法必须排在 BASH_VERSION 判断之后: 若 /bin/sh 是 dash, `set +o posix`
+# 会以 `Illegal option` 失败、shopt 会 `not found`, errexit 下脚本在打印友好提示
+# 之前就退出, 管理员只看到无意义的报错。因此先做纯 POSIX 的准入判断, 再切 bash 模式。
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+
+if [ -z "${BASH_VERSION:-}" ]; then
+    echo "ERROR: /bin/sh is not bash, tsc_python requires bash >= 4.0 to install." >&2
+    exit 1
+fi
+
 set -o errexit
 set -o nounset
 set -o pipefail
 set +o posix
 shopt -s nullglob
 
-export PATH=/bin:/sbin:/usr/bin:/usr/sbin
-
-# RPM scriptlet 由 /bin/sh 执行, 本脚本依赖 bash (>= 4) 的关联数组
-if [[ -z "${BASH_VERSION:-}" ]]; then
-    echo "ERROR: /bin/sh is not bash, tsc_python requires bash >= 4.0 to install." >&2
-    exit 1
-fi
 if ((BASH_VERSINFO[0] < 4)); then
     echo "ERROR: Bash version too low (${BASH_VERSION}), requires at least 4.0." >&2
     exit 1

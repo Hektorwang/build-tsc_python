@@ -51,10 +51,11 @@ KNOWN_ISSUES.md                     审查发现的暂缓事项清单 (不随包
 | 7 | **版本解析**：取 `release-note.md` 第一个 `Version=`；含 `-` 直接报错（RPM Version 不允许） |
 | 8 | **stage**：`output/<arch>/payload/home/tsc` → `stage/payload/home/tsc` |
 | 9 | **scriptlet**：`render_template` 把 `# >>> INJECT <file>` 换为该文件内容，再 `sed` 替换 `@ARCH@` |
-| 10 | **scriptlet 语法自检**：三个脚本逐个 `bash -n`；再断言 `%pre` 含 `SUPPORTED_ARCHITECTURES=`/`check_env()`、无残留 `@ARCH@`，`%post` 含 `LOGINFO()`；并比对 `build-info.json` 版本与 RPM 版本一致（两处独立解析 `release-note.md`，防漂移） |
-| 11 | 渲染 `nfpm.yaml` 并 `nfpm package --packager rpm` |
-| 12 | **产物自检**：包信息 / `Requires` / 文件数 / 架构与构建架构一致 / 关键文件齐全 / 关键文件可执行位 / 四段 scriptlet 是否写入 |
-| 13 | 生成 `.sha256`；`stage/` 由 `package_rpm` 的 RETURN trap 在成功/失败路径统一回收 |
+| 10 | **scriptlet 语法自检**：四个脚本逐个 `bash -n`；随包脚本（`modules/*/run.sh`、`smoke_test.sh`）同样逐个 `bash -n`；再断言 `%pre` 含 `SUPPORTED_ARCHITECTURES=`/`check_env()`、无残留 `@ARCH@`，`%post` 含 `LOGINFO()`；并比对 `build-info.json` 版本与 RPM 版本一致（两处独立解析 `release-note.md`，防漂移） |
+| 10.5 | **`@PYTHON_MM@` 一致性断言**：`stage` 内必须存在 `lib/python<MM>/site-packages/ansible/config/`，否则 base.yml 会以不存在的路径入包 |
+| 11 | 渲染 `nfpm.yaml`（渲染后反向断言无残留 `@XXX@` 占位符）并 `nfpm package --packager rpm` |
+| 12 | **产物自检**：包信息 / `Requires` / 文件数 / 架构与构建架构一致 / 关键文件齐全（含 `patch_ansible.py` 与 `%config(noreplace)` 的 base.yml）/ 关键文件可执行位 / 四段 scriptlet 是否写入 |
+| 13 | 生成 `.sha256`；`stage/` 与构建期临时配置由 EXIT trap 统一回收（`package_rpm` 的 RETURN trap 覆盖不到 Ctrl-C 中断路径） |
 
 产物：`release/tsc_python-<version>-<release>.<arch>.rpm`（`release` 取构建时间戳 `YYYYMMDDHHMMSS`）。
 
@@ -75,7 +76,7 @@ KNOWN_ISSUES.md                     审查发现的暂缓事项清单 (不随包
 2. **`lib_min.sh` 是 `func` 的 shim**。它只提供 5 个 `LOG*`、`is_element_in_array` 与 `version_ge`，与 `func` 里的同名函数**同名同签名**；日志前缀由调用方设置的 `__LOG_TAG` 决定。改任一侧的签名或行为，必须同步另一侧。
 3. **`%preun` 在升级时全部跳过**。回收工作交给新包的 `%post` 重建，避免出现"升级过程中工具被删空"的窗口。
 4. **`%preun` 只用 POSIX 语法，且任何分支都 `exit 0`**。`%preun` 返回非零会让 rpm 拒绝卸载，让机器卡在"卸不掉"的状态比留下几个文件更糟。这也是它不注入 bash 版 `lib_min.sh` 的原因。
-5. **profile 是 drop-in，三个角色各管一段**（与 tsc_tools 2.1.7+ 同构）。
+5. **profile 是 drop-in，三个角色各管一段**（与 tsc_tools 2.1.8+ 同构；2.1.7 已有 drop-in 模型但前缀与本包同为 `01-`，本包硬依赖下限为 2.1.8）。
 
    | 路径 | 谁部署 | 卸载谁删 |
    |---|---|---|
@@ -155,9 +156,17 @@ KNOWN_ISSUES.md                     审查发现的暂缓事项清单 (不随包
 
 nfpm 的 `type: config|noreplace` 只能打在**独立 content 条目**上，无法标在目录整体拷贝里的单文件。所以 `files/pack.sh` 的 `stage_ansible_base` 在组装期把 `base.yml` 从安装树移出、单独暂存为 `output/staged/ansible_base.yml`，`build.sh` 再把它并入 stage 并以 `type: config|noreplace` 单独声明；`build.sh` 还会在 stage 拷贝后兜底删一次批量树里的 `base.yml`，避免与独立条目撞同一 `dst` 触发 nfpm `content collision`。
 
+暂存缺失时 `build.sh` 会把这一段从 `nfpm.yaml` 里摘掉（否则 nfpm 因 `src` 不存在而失败）。摘除区间由模板里的**哨兵注释** `# >>> BEGIN ansible_base_noreplace` / `# <<< END ansible_base_noreplace` 界定——**不要改写哨兵本身**（区间内的正文注释可随意改）。此前区间锚在中文注释文案与 `type: config|noreplace` 两行上：改注释即失效，结束行被改时更会一路删到文件尾，把 `scripts:` 段一起删掉而 nfpm 不报错。摘除后 `build.sh` 另有断言（`ansible_base.yml` 必须已从配置里消失），摘不掉即中止打包。
+
 > 注意：nfpm 2.47.0 用的是 `type: config|noreplace`，**没有** `config_noreplace` 这个布尔字段（后者会让 nfpm 解析失败）。改动 `nfpm.yaml.tmpl` 时务必用前者。
 
-### 4.9 产物不签名
+### 4.9 新增随包 shell 脚本
+
+`build.sh` 在打包期对本包自带的 `smoke_test.sh` 与 `modules/*/run.sh` 逐个 `bash -n`（范围限定 `stage/payload/home/tsc/tsc_python` 下 `-maxdepth 3`，有意不含 conda 环境内散落的 `*.sh`——那些不由本仓维护，纳入只会引入噪音）。新增随包脚本若落在该范围外（层级更深或文件名不同），需同步扩大自检范围。
+
+这条自检是 0.13.2 事故的直接产物：三个模块 `run.sh` 因引号未闭合整份不可用，而当时打包期只查了文件存在性与可执行位，缺陷随 0.13.2 / 0.13.3 两个版本发布。
+
+### 4.10 产物不签名
 
 **已决策：不做 GPG 签名**（内网裸 `rpm -ivh`/`rpm -Uvh` 分发，产物 `SIGPGP=(none)`）。若将来改走 dnf 制品库且仓库 `gpgcheck=1`（默认），未签名包会被拒装——届时需重新评估：补签名，或在仓库配置里关掉 `gpgcheck`。
 

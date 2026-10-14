@@ -1,5 +1,26 @@
 # tsc_python
 
+## Version=0.13.4
+
+Date=20261014
+
+1. fix(modules, P0): 三个文档模块 (`tsc_python_ansible`/`tsc_python_batch_user_manager`/`tsc_python_changehostname`) 的 `run.sh` 第 19 行 `show_readme "${WORK_DIR}"/"README.md` 引号未闭合, bash 报 `unexpected EOF while looking for matching '"'`, **三个模块整份不可用**; 该缺陷由 0.13.2 的"按 TTY 分流"改动引入, 0.13.2 与 0.13.3 两个已发布版本均受影响
+2. fix(build): 打包期增加随包脚本语法自检——对 stage 内本包自带的 `modules/*/run.sh` 与 `smoke_test.sh` 逐个 `bash -n`; 此前 `bash -n` 只遍历 `stage/rpm-scripts/*`, 产物自检只查存在性与可执行位, 语法错误会一路随包发布(范围限定为包自有脚本: conda 环境内散落大量不由本仓维护的 `*.sh`, 全量纳入只会引入噪音)
+3. fix(Dockerfile): pip 层 `RUN` 的 `|| true` 收窄到 arch 判断本身——原写法 `A && B && C && D || true && E && G` 左结合, `micromamba activate` 失败会被 `|| true` 救成真, `uv pip install` 继续在未激活的环境(EL7 上是系统 python 2.7)里执行, 装出的包根本不在 payload 中而构建仍标记成功; 另加 `CONDA_PREFIX` 断言, activate 未生效即构建失败
+4. fix(build): jq 下载后补 sha256 校验——先落 `.dl` 临时文件, 校验通过再 `mv` 到目标; 此前 `jq_sha256_*` 两个常量只用于校验**已有缓存**, 新下载的二进制 `chmod +x` 后直接使用, 与 README "sha256-verified" 的描述不符, 损坏/被篡改的二进制会原样进容器
+5. fix(pack.sh): `check_pip_conda_overlap` 去掉 `2>/dev/null || true`——解释器损坏、heredoc 异常等任何失败都被吞成空串, 使这条"构建期兜底断言"恒为通过 (fail-open); 现扫描失败即中止出包, 且扫描到的 `dist-info` 数为 0 时(判定方法失效的假阴性)同样中止
+6. fix(pack.sh): `check_glibc_baseline` 由 fail-open 改为 fail-close——缺少 `objdump` 或未扫到任何 ELF 符号时禁止出包(此前只 WARNING 放行, 超标产物会静默流入现场); 扫描范围由 `-type f` 改为 `! -type d` 并放宽体积过滤: conda 环境里大量 `.so` 是软链 (`libfoo.so -> libfoo.so.1`), 只扫常规文件会漏掉它们身上的 `GLIBC_` 符号要求
+7. fix(pack.sh): `PYTHON_VERSION` 补 `|| true`, 与下一行 `MICROMAMBA_VERSION` 对称——python 缺失时管道在 `pipefail` 下返回非零, `errexit` 会在 `:-unknown` 兜底生效之前终止整个构建
+8. fix(build): 增加 `@PYTHON_MM@` 与真实环境的一致性断言——`py_mm` 由 `environment.yml` 文本正则抠出, 真实目录名由 conda 解析结果决定, 二者漂移会让 `base.yml` 以一个不存在的路径入包, `%post` 的 patch 与 `%config(noreplace)` 同时失效而产物自检无感
+9. fix(build): `nfpm.yaml` 渲染后反向断言无残留 `@XXX@` 占位符(模板新增占位符而 `build.sh` 漏配 `-e` 时会静默出包); `py_mm` 解析改用 `sed -n '1p'` 替代 `head -n1`(head 提前退出会让上游 grep 收到 SIGPIPE 返回 141, 在 `pipefail` + `errexit` 下脚本无任何提示直接中断); `NFPM_VERSION` 补 `|| true`
+10. fix(build): `stage/` 与构建期临时配置改由 EXIT trap 统一回收——`package_rpm` 的 RETURN trap 只在函数正常返回时触发, Ctrl-C 中断路径下不触发, 会留下 GB 级 payload 拷贝
+11. fix(build): 产物自检补 `patch_ansible.py` 与 `%config(noreplace)` 的 `base.yml`——后者是唯一的 config 条目, 暂存缺失时 `build.sh` 的兜底会删掉整段, 不在此断言的话产物会静默丢掉 ansible 解释器回退配置
+12. fix(rpm/postinstall): drop-in 部署失败由无条件 `LOGSUCCESS` 改为 `LOGERROR`——本脚本不设 `errexit`, `cp` 失败(磁盘满/权限)时安装者看到"部署成功"而环境实际未生效; 调用点同步改为显式报错
+13. fix(rpm/scriptlet): `%pre`/`%post` 的 `BASH_VERSION` 判断移到 `set +o posix` 与 `shopt -s nullglob` 之前——rpm 一律用 `/bin/sh` 执行 scriptlet, 若 `/bin/sh` 是 dash, 这两行会先以 `Illegal option`/`not found` 失败并退出, 友好提示永远打不出来
+14. docs: README 中英与 README-dev 的 tsc_tools 版本口径统一为 2.1.8(本包硬依赖下限; 提 2.1.7 处注明其为首个提供 drop-in 加载器的版本); README-dev §2 打包流程表"三个脚本"更正为四个, 并补记随包脚本自检与 `@PYTHON_MM@` 断言两步
+15. fix(build): `nfpm.yaml.tmpl` 的 ansible `base.yml` 段改用哨兵注释 `# >>> BEGIN/<<< END ansible_base_noreplace` 界定——此前 `build.sh` 的兜底 `sed` 区间锚在中文注释文案与 `type: config|noreplace` 两处, 改注释即失效(产物带指向不存在 src 的条目, 报错与真实原因无关), 结束行被改时更会一路删到文件尾把 `scripts:` 段一起删掉而 nfpm 不报错; 摘除后新增断言(`grep -q ansible_base.yml` 必须为空), 摘不掉即中止打包
+16. docs(profile): `TSC_MODULES_DIR` 的判重保持原有的"两端补冒号 + 子串匹配"三行写法——该变量只由本工具链的 drop-in 追加, 不存在需要规范化处理的书写变体; 一度引入的规范化+逐段比较已回退, 与 tsc_tools 2.1.10 侧保持一致
+
 ## Version=0.13.3
 
 Date=20261013

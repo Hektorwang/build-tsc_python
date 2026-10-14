@@ -59,10 +59,16 @@ COPY ./files/requirements.txt /tmp/
 # 不过滤的后果: 锁文件与 conda 解析漂移时, pip wheel 会覆盖 conda 构建版 (openssl ABI 风险);
 # 过滤后 ansible-core/asyncssh 仍声明这些依赖, 但 pip 发现环境里已满足, 直接沿用 conda 版本。
 # pack.sh 的 check_pip_conda_overlap 会在构建期兜底断言这条边界。
+# 注意: && / || 左结合。原先写成 `... && [[ $(arch) == aarch64 ]] && export CFLAGS=... || true && ...`,
+# 一旦 micromamba activate 失败, `|| true` 会把整条链救成真, uv pip install 继续在未激活的
+# 环境 (EL7 上是系统 python 2.7) 里执行——装出的包根本不在 payload 中, 而构建仍标记成功。
+# 因此: `|| true` 只兜住 arch 判断本身, activate 结果在下一条 RUN 语句内显式断言。
 RUN export MAMBA_ROOT_PREFIX && \
     eval "$("${MICROMAMBA_DIR}/bin/micromamba" shell hook --shell bash)" && \
     micromamba activate "${ENV_NAME}" && \
-    [[ $(arch) == "aarch64" ]] && export CFLAGS="-D__ARM_ARCH=8" || true && \
+    { [[ $(arch) == "aarch64" ]] && export CFLAGS="-D__ARM_ARCH=8" || true; } && \
+    test -n "${CONDA_PREFIX}" && \
+    test "${CONDA_PREFIX}" = "${MICROMAMBA_DIR}/envs/${ENV_NAME}" && \
     grep -vE '^(cffi|cryptography|packaging|pycparser|typing-extensions)==' /tmp/requirements.txt > /tmp/requirements.pip.txt && \
     uv pip install -r /tmp/requirements.pip.txt
 

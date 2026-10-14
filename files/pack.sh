@@ -32,18 +32,23 @@ readonly GLIBC_BASELINE="2.17"
 check_glibc_baseline() {
     local max_glibc
     if ! command -v objdump &>/dev/null; then
-        LOGWARNING "check_glibc_baseline: 缺少 objdump, 跳过 ABI 门限检查"
-        return 0
+        # 基线不可判定时必须禁止出包: "跳过"会让超标产物静默流入现场, 而现场机器
+        # 只会在运行期以 `version GLIBC_2.xx not found` 的形式暴露
+        LOGERROR "check_glibc_baseline: 缺少 objdump, 无法校验 glibc 基线, 禁止出包"
+        exit 1
     fi
-    max_glibc="$(find "${MICROMAMBA_DIR}" -type f \( -name '*.so*' -o -path '*/bin/*' \) -size +10k |
+    # ! -type d (而非 -type f): conda 环境里大量 .so 是软链 (libfoo.so -> libfoo.so.1),
+    # 只扫常规文件会漏掉它们身上的 GLIBC_ 符号要求
+    # -size +0c (而非 +10k): 体积小的 ELF 同样可能带高版本符号, 体积过滤不是安全筛子
+    max_glibc="$(find "${MICROMAMBA_DIR}" ! -type d -size +0c \( -name '*.so*' -o -path '*/bin/*' \) |
         while read -r f; do
             head -c4 "$f" 2>/dev/null | grep -q $'\x7fELF' || continue
             objdump -T "$f" 2>/dev/null
         done |
         grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -n1)" || true
     if [[ -z "${max_glibc}" ]]; then
-        LOGWARNING "check_glibc_baseline: 未扫描到 ELF 符号, 跳过"
-        return 0
+        LOGERROR "check_glibc_baseline: 未扫描到任何 ELF 符号, 无法判定基线, 禁止出包"
+        exit 1
     fi
     LOGINFO "check_glibc_baseline: 环境最高 glibc 符号要求 = ${max_glibc} (基线 ${GLIBC_BASELINE})"
     # version_ge max baseline: max >= baseline 时为真; 与基线相等属正常, 超过才拦截
@@ -72,8 +77,10 @@ check_pip_conda_overlap() {
         LOGWARNING "check_pip_conda_overlap: 找不到 ${py}, 跳过"
         return 0
     fi
-    local overlap
-    overlap="$("${py}" - <<'PYEOF' 2>/dev/null || true
+    local overlap rc=0
+    # 不做 `2>/dev/null || true`: 那会让解释器损坏 / heredoc 异常等任何失败都变成空串,
+    # 使这条"构建期兜底断言"恒为通过 (fail-open)。扫描失败 = 边界未经验证 = 禁止出包
+    overlap="$("${py}" - <<'PYEOF'
 import json
 import pathlib
 import sys
@@ -92,21 +99,36 @@ if conda_meta.is_dir():
         conda_names.add(name.lower().replace("-", "_"))
 
 overlap = []
-if site.is_dir():
-    for dist_info in sorted(site.glob("*.dist-info")):
-        installer = dist_info / "INSTALLER"
-        if not installer.is_file():
-            continue
-        who = installer.read_text().strip().lower()
-        if who not in ("pip", "uv"):
-            continue
-        name = dist_info.name.split("-")[0].lower().replace("-", "_")
-        if name in conda_names:
-            overlap.append("{} (installer={})".format(name, who))
+scanned = 0
+if not site.is_dir():
+    sys.stderr.write("site-packages not found: {}\n".format(site))
+    sys.exit(2)
+for dist_info in sorted(site.glob("*.dist-info")):
+    installer = dist_info / "INSTALLER"
+    if not installer.is_file():
+        continue
+    scanned += 1
+    who = installer.read_text().strip().lower()
+    if who not in ("pip", "uv"):
+        continue
+    name = dist_info.name.split("-")[0].lower().replace("-", "_")
+    if name in conda_names:
+        overlap.append("{} (installer={})".format(name, who))
 
+if scanned == 0:
+    # 一个都没扫到通常意味着判定方法失效 (如 uv 版本不再写 INSTALLER),
+    # 此时"无重叠"是假阴性, 必须拦下而不是放行
+    sys.stderr.write("no dist-info with INSTALLER found under {}\n".format(site))
+    sys.exit(3)
+
+sys.stderr.write("scanned {} dist-info\n".format(scanned))
 print("\n".join(overlap))
 PYEOF
-)"
+)" || rc=$?
+    if [[ ${rc} -ne 0 ]]; then
+        LOGERROR "check_pip_conda_overlap: 扫描失败 (rc=${rc}), pip/conda 分层边界未经验证"
+        exit 1
+    fi
     if [[ -n "${overlap}" ]]; then
         LOGERROR "check_pip_conda_overlap: pip 层安装了 conda 已提供的包:"
         LOGERROR "${overlap//$'\n'/ }"
@@ -229,13 +251,15 @@ BUILD_TIMESTAMP="$(date +%s)"
 
 # 与宿主机 build.sh 的 RPM NVR 解析同一写法: 取 release-note.md 第一个 Version= 行并去空白。
 # 两处必须一致——build.sh 打包期会拿本文件产出的 build-info.json 版本与 RPM 版本比对
-version="$(awk -F '=' '/Version=/{print $2; exit}' "${WORK_DIR}"/release-note.md | tr -d '[:space:]')"
+version="$(awk '/Version=/{sub(/^[^=]*=/, ""); print; exit}' "${WORK_DIR}"/release-note.md | tr -d '[:space:]')"
 
 system_info="$(detect_system_info)"
 build_arch="$(echo "${system_info}" | jq -r .machine_architecture)"
 
 # 版本元数据取自真实安装产物 (而非构建参数自报), 保证元数据与包内容一致
-PYTHON_VERSION="$("${MICROMAMBA_DIR}/envs/tsc_python/bin/python" --version 2>/dev/null | awk '{print $2}')"
+# 两行都要 || true: python 缺失时管道在 pipefail 下返回非零, errexit 会在下一行
+# 的 :-unknown 兜底生效之前就终止整个构建 (与 MICROMAMBA_VERSION 的写法保持一致)
+PYTHON_VERSION="$("${MICROMAMBA_DIR}/envs/tsc_python/bin/python" --version 2>/dev/null | awk '{print $2}')" || true
 MICROMAMBA_VERSION="$("${MICROMAMBA_DIR}/bin/micromamba" --version 2>/dev/null)" || true
 PYTHON_VERSION="${PYTHON_VERSION:-unknown}"
 MICROMAMBA_VERSION="${MICROMAMBA_VERSION:-unknown}"

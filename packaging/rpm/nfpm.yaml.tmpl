@@ -37,6 +37,11 @@ contents:
   - src: "@STAGE_DIR@/payload/home/tsc/"
     dst: /home/tsc
 
+  # >>> BEGIN ansible_base_noreplace
+  # 哨兵注释: build.sh 在 ansible_base.yml 暂存缺失时按这两行界定区间摘除本段。
+  # 不要改写哨兵本身 (正文注释可随意改) —— 此前区间锚在下方中文注释与
+  # `type: config|noreplace` 两处文案上, 改注释即失效, 且结束行被改时会一路删到文件尾。
+  #
   # ansible 的 INTERPRETER_PYTHON_FALLBACK 由 %post 的 patch_ansible.py 改写;
   # 以 %config(noreplace) 单独声明: 升级保留现场已改写版本 (不被包内原版覆盖)。
   # 注意 noreplace 不免除校验: rpm -V 会把 patch 过的 base.yml 报为 S.5....T. c, 属预期。
@@ -44,6 +49,7 @@ contents:
   - src: "@STAGE_DIR@/ansible_base.yml"
     dst: /home/tsc/tsc_python/envs/tsc_python/lib/python@PYTHON_MM@/site-packages/ansible/config/base.yml
     type: config|noreplace
+  # <<< END ansible_base_noreplace
 
 scripts:
   preinstall: "@STAGE_DIR@/rpm-scripts/preinstall"
