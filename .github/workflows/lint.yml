@@ -1,0 +1,20 @@
+# 轻量 CI: shellcheck + bash -n (与 ci/lint.sh 同一入口)
+# 覆盖一方脚本与渲染后的四段 scriptlet; 完整构建需内网 yum 源/镜像, 不在 CI 范围内
+name: lint
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+
+      - name: Static checks (shellcheck + bash -n)
+        run: bash ci/lint.sh

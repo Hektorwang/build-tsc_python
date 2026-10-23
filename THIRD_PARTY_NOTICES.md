@@ -14,6 +14,11 @@ This installer and the build tool involve the following third-party open-source 
 | --- | --- | --- | --- |
 | Python | see package metadata | PSF-2.0 (BSD-style) | https://www.python.org |
 | micromamba | see package metadata | BSD-3-Clause | https://github.com/mamba-org/mamba |
+| jq (static binary) | pinned at build time | MIT | https://github.com/jqlang/jq |
+
+jq ships inside the RPM as a fully static binary at `<env>/bin/jq` (a hard dependency of yq, not
+guaranteed to exist on target machines); distributed unmodified — the MIT notice obligation is
+met by this notice and upstream source availability.
 
 ### conda-layer libraries
 
@@ -56,7 +61,7 @@ installer); the MIT copyright and license notice are retained in the file header
 
 | Component | License | Source | Note |
 | --- | --- | --- | --- |
-| jq | MIT | https://github.com/jqlang/jq | Fetched at build time per pinned version, used only inside the build container |
+| jq | MIT | https://github.com/jqlang/jq | Fetched at build time per pinned version, and distributed inside the RPM (see section 1) |
 | nfpm | MIT | https://nfpm.goreleaser.com | Provided by the build host, used only to assemble the RPM |
 
 The build tool's own code is released under **GPL-3.0-or-later**, see `LICENSE` at the repository root.

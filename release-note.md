@@ -1,5 +1,29 @@
 # tsc_python
 
+## Version=0.13.6
+
+Date=20261024
+
+1. fix(build): `package_rpm` 成功路径显式回收 `stage/` 并复位 RETURN trap——原 trap 在函数返回后不复位, 其后每个函数返回 (含 LOG*) 都会再触发一次 `rm -rf stage`, 幂等但属卫生问题; 失败路径仍由 RETURN trap 回收, 脚本级 EXIT trap 兜底不变
+2. fix(modules): 三个文档模块 (`tsc_python_ansible`/`tsc_python_batch_user_manager`/`tsc_python_changehostname`) 的 run.sh 补 `set -o nounset` / `set -o pipefail` (0.13.3 已补 errexit), 与 tsc_tools 侧模块规范对齐
+3. fix(build): 构建入口加 flock 互斥 (仓库根 `.build.lock`, 已入 .gitignore, 非阻塞)——同机并发 `build.sh` 会互踩 `output/<arch>` 清空与 `release/` 旧产物回收, 现第二个实例直接退出并提示; 打包机缺 flock 时显式报错而非静默失去互斥
+
+## Version=0.13.5
+
+Date=20261024
+
+1. fix(build/Dockerfile, P0): pip 层补 `--index-url`——uv 不读取 pip.conf (官方兼容性约定, 亦不读 `PIP_INDEX_URL` 等 pip 专属配置), 此前 `uv pip install` 一直从默认 pypi.org 解析, `build.conf` 的 `pypi_index` 对 pip 层实际无效: 有公网的构建机无感, 离线内网机构建会失败且报错误导; 现由 build.sh 经 `--build-arg PYPI_INDEX` 注入, `uv pip install --index-url` 显式指定, 并加空值断言拦下漏传
+2. refactor(rpm): 放弃 base.yml 的 `%config(noreplace)`, 改为普通文件随批量安装树入包——noreplace 保住的是整份旧 schema: 一旦升级同时抬高 ansible-core 版本, 现场保留的旧 base.yml 缺少新版新增配置定义, ansible 访问即抛 `AnsibleUndefinedConfigEntry`, 而新版原版被落成 `base.yml.rpmnew`, `%post` 补丁不合并它, 需现场手工恢复; 普通文件形态下升级由 rpm 覆盖为新版原版, `%post` 幂等重打解释器补丁; base.yml 本就不是现场定制点 (ansible.cfg 才是), `rpm -V` 不再报 config 差异。连带移除 pack.sh 的 `stage_ansible_base` 与 build.sh 的暂存并入/哨兵区间摘除/批量树防御删除
+3. fix(build): `build-info.json` 缺失由 WARNING 放行改为中止打包, 并纳入产物自检 `need_file`——pack.sh 无条件生成该文件, 缺失即容器侧异常, 与其余门禁 (glibc/占位符/python 版本) 的 fail-close 口径对齐
+4. fix(build): release/ 旧产物不再打包前全删 (原写法下 nfpm 一旦失败, 本机上一份可用 RPM 已被删掉)——现仅清同 NVR 目标文件, 打包成功后按 mtime 只保留最近 5 份 (含对应 `.sha256`)
+5. refactor(build): jq 缓存与容器注入收窄到当前架构——`ensure_jq` 原本强制双架构二进制齐备, x86_64 构建机会因 aarch64 jq 下载失败而中断; Dockerfile 改 `COPY ./files/tmp/jq-${ARCH}` (BuildKit, build.sh 传入 `--build-arg ARCH`)
+6. feat(rpm): jq 静态二进制随包分发于 `envs/tsc_python/bin/jq`——yq 的硬依赖, 目标机未必自带 (EL7 无 jq 且 EPEL 已不可用); 放 env bin 而非 mamba root bin: micromamba activate 只把 root 的 condabin 挂上 PATH, root bin 不在其中, 放那里 yq 找不到; 二进制纯静态链接, 不引入额外 glibc 要求。THIRD_PARTY_NOTICES 中英同步 (jq 随包分发, MIT); 冒烟测试 jq 检查改查包内 `${ENV_BIN}/jq` (未激活环境也能命中)
+7. feat(rpm): `%post` 的 profile 与日志目录部署改 `install -d -m` / `install -m 0644`——目标机收紧的 umask (如 0077) 不再影响落盘权限; drop-in 部署失败的错误语义不变
+8. fix(rpm): depends 补 `findutils`——`%postun` 用 find 自底向上清理本包空目录壳, 既有 depends 已声明 grep/sed/coreutils, 补齐同一口径
+9. docs: README 中英 / files/README / README-dev 声明本包以 root 运行为前提 (包内容、profile 与 `/var/log/tsc` 均 root 属主, 不创建运行用户)
+10. ci: 新增 `ci/lint.sh` (shellcheck + bash -n, scriptlet 模板按 build.sh 同一语义渲染后检查) 与 GitHub Actions workflow; 本地可直接 `bash ci/lint.sh`。顺带修掉存量 lint 发现: `NFPM_VERSION`/`local backup` 声明与赋值分离 (SC2155), smoke_test 移除未用的 `C_STD`
+11. docs(KNOWN_ISSUES): 记录 2026-10-24 第二轮审查的暂缓项与已决策接受项 (micromamba 无校验和/conda 不锁定/host_key_checking 为团队设计等)
+
 ## Version=0.13.4
 
 Date=20261014

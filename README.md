@@ -39,6 +39,10 @@ on failure the installation is aborted and no half-installed tree is left behind
 `tsc_tools`' `gen_rag.sh` and patches ansible's `INTERPRETER_PYTHON_FALLBACK` list.
 All steps are idempotent.
 
+**Runtime identity:** this package assumes **root** — the payload, the profile drop-in and
+`/var/log/tsc` are all owned by root and usable by root only (no dedicated runtime user is
+created); install, usage and uninstall all require root.
+
 The environment is exposed through a profile **drop-in**, following the same split `tsc_tools >= 2.1.8` uses (2.1.6 was the first version to ship the drop-in loader, 2.1.8 is the hard dependency floor of this package):
 
 | Path | Owner | Removed on uninstall |
@@ -122,7 +126,7 @@ The build container is CentOS 7.9 (EL7), which is EOL. **The build must not depe
 | Resource | How to obtain |
 | --- | --- |
 | Builder image `centos:7.9.2009` (one per arch: x86_64 / aarch64) | Pull from the public network and preserve into your internal registry (see below) |
-| yum repository (CentOS 7.9 Base ISO is sufficient) | Build with `createrepo` from the archived 7.9.2009 ISO, passed via `--repo-local`; jq is provided by static binaries fetched on demand into `files/tmp/`, no EPEL needed |
+| yum repository (CentOS 7.9 Base ISO is sufficient) | Build with `createrepo` from the archived 7.9.2009 ISO, passed via `--repo-local`; jq is provided by a static binary fetched on demand into `files/tmp/` (current arch only), no EPEL needed |
 | micromamba binary | Download once from `micro.mamba.pm` on an internet-connected machine, copy to the build host's `files/tmp/` (see "Third-party component cache") |
 | PyPI index / conda-forge channel | Defaults to the CERNET unified mirror, customizable via `pypi_index`/`conda_forge` in `build.conf`; point to internal mirrors for offline builds (see "Intranet deployment") |
 
@@ -216,7 +220,7 @@ All third-party build components use a **cache-first, download-on-demand** patte
 | Component | Cache location | Upstream |
 | --- | --- | --- |
 | micromamba | `files/tmp/micromamba` (+ `.version`) | micro.mamba.pm |
-| jq (static binaries, two architectures) | `files/tmp/jq-x86_64` / `jq-aarch64` (sha256-verified) | github.com/jqlang/jq |
+| jq (static binary, current arch only) | `files/tmp/jq-<arch>` (sha256-verified, shipped inside the RPM) | github.com/jqlang/jq |
 
 Offline build hosts can place the files manually. First download on an internet-connected machine (2.9.0 / x86_64 as an example, `linux-aarch64` for aarch64):
 
@@ -235,7 +239,7 @@ Force re-downloading (just delete the caches):
 
 ```bash
 rm -f files/tmp/micromamba files/tmp/micromamba.version
-rm -f files/tmp/jq-x86_64 files/tmp/jq-aarch64
+rm -f files/tmp/jq-<arch>   # e.g. jq-x86_64
 ```
 
 ### Build artifacts
@@ -252,6 +256,11 @@ tsc_python-<version>-<release>.<arch>.rpm.sha256 # SHA256 checksum file
 timestamp (`YYYYMMDDHHMMSS`).
 Build metadata (python / micromamba version, glibc baseline) is shipped inside the package as
 `/home/tsc/tsc_python/build-info.json`.
+
+`release/` keeps only the 5 most recent artifacts for the current architecture (older ones and
+their `.sha256` are pruned by modification time after a successful package); a failed packaging
+run never touches existing artifacts. Only one `build.sh` instance may run at a time per host
+(flock mutex at the entry; a second instance exits immediately).
 
 ### Build logs
 
@@ -309,7 +318,8 @@ All supported systems use the same RPM for their architecture (`x86_64` / `aarch
 
 External resources required by the build and their configuration:
 
-- **PyPI index**: defaults to the CERNET unified mirror; offline build hosts point `pypi_index` in `build.conf` (or `--pypi-index`) to an internal index
+- **PyPI index**: defaults to the CERNET unified mirror; offline build hosts point `pypi_index` in `build.conf` (or `--pypi-index`) to an internal index.
+  The address is injected into the build container via `--build-arg` and passed to `uv pip install` as an explicit `--index-url` — uv does not read `pip.conf`, so the index only takes effect when specified explicitly
 - **conda-forge channel**: defaults to the CERNET unified mirror's conda-forge channel; offline build hosts point `conda_forge` in `build.conf` (or `--conda-forge`) to an internal channel, or to a self-hosted minimal conda-forge mirror (see below)
 - **Docker base image**: push to the internal registry and change `Dockerfile`'s `FROM` (see "Preserving the EL7 builder image")
 - **yum repository**: see the next section
@@ -356,6 +366,7 @@ bash build.sh --repo-local http://<your-internal-repo-server>
 The code of this project is released under **GPL-3.0-or-later**, see [LICENSE](LICENSE) at the repository root.
 
 Third-party components referenced by the repository follow their own licenses, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) (Chinese version: [THIRD_PARTY_NOTICES.zh_CN.md](THIRD_PARTY_NOTICES.zh_CN.md)):
-the micromamba binary (BSD-3-Clause) and the jq static binaries (MIT) are fetched at build time at pinned versions and are not distributed with this repository.
+the micromamba binary (BSD-3-Clause) and the jq static binary (MIT) are fetched at build time at pinned versions and are not distributed with this repository;
+the jq static binary is shipped inside the produced RPM at `envs/tsc_python/bin/jq` (a hard dependency of yq, not guaranteed to exist on target machines).
 
 The tsc_python packages produced by this tool are distributed to internal environments only.

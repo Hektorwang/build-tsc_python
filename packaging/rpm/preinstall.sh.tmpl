@@ -65,7 +65,8 @@ rotate_legacy_install() {
         return 0
     fi
 
-    local backup="${dir}.bak.$(date "+%Y%m%d%H%M%S")"
+    local backup
+    backup="${dir}.bak.$(date "+%Y%m%d%H%M%S")"
     if ! mv "${dir}" "${backup}"; then
         LOGERROR "Failed to rotate legacy directory: ${dir}"
         return 1
@@ -102,7 +103,8 @@ rotate_legacy_profile() {
         LOGINFO "Removed legacy profile mount line from ${profile}"
     fi
 
-    local backup="${legacy_file}.pre-rpm.$(date "+%Y%m%d%H%M%S")"
+    local backup
+    backup="${legacy_file}.pre-rpm.$(date "+%Y%m%d%H%M%S")"
     if ! mv "${legacy_file}" "${backup}"; then
         LOGERROR "Failed to rotate legacy profile: ${legacy_file}"
         return 1

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC1090,SC1091
 set -o errexit
+set -o nounset
+set -o pipefail
 WORK_DIR="$(dirname "$(readlink -f "$0")")"
 
 # glow 传文件路径时进 TUI 模式: 交互式终端下是想要的翻页效果, 但 stdout 非 TTY

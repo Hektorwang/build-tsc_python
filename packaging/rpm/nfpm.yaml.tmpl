@@ -16,6 +16,7 @@ description: |
 #   bash >= 4.0   scriptlet 使用关联数组, 低于 4.0 的 bash 由 %pre 显式拦下
 #   glibc >= 2.17 环境构建基线, 目标机低于该值时环境无法运行 (%pre 亦会校验)
 #   grep / sed    scriptlet (如 tsc_tools 的 gen_rag) 处理文本时使用
+#   findutils     %postun 用 find 自底向上清理本包空目录壳
 #   tsc_tools >= 2.1.8
 #                profile 以 drop-in 形式提供 (/home/tsc/tsc_profile.d/01-tsc_python-profile.sh),
 #                需 tsc_tools 的 tsc_profile 才会加载该目录下的 *.sh;
@@ -26,6 +27,7 @@ description: |
 depends:
   - bash >= 4.0
   - coreutils
+  - findutils
   - glibc >= 2.17
   - grep
   - sed
@@ -34,22 +36,10 @@ depends:
 contents:
   # 包内容统一挂在 /home/tsc 下: tsc_python/(环境本体 + profile 源 + ansible 配置 + 插件模块)
   # drop-in 与 tsc_profile 公共入口由 %post 从 tsc_python/ 下部署到 /home/tsc, 不进文件清单
+  # ansible 的 base.yml 以普通文件随本目录树入包 (0.13.5 起放弃 %config(noreplace) 单独
+  # 声明, 理由见 README-dev §4.8); %post 的 patch_ansible.py 在安装/升级后幂等重打补丁
   - src: "@STAGE_DIR@/payload/home/tsc/"
     dst: /home/tsc
-
-  # >>> BEGIN ansible_base_noreplace
-  # 哨兵注释: build.sh 在 ansible_base.yml 暂存缺失时按这两行界定区间摘除本段。
-  # 不要改写哨兵本身 (正文注释可随意改) —— 此前区间锚在下方中文注释与
-  # `type: config|noreplace` 两处文案上, 改注释即失效, 且结束行被改时会一路删到文件尾。
-  #
-  # ansible 的 INTERPRETER_PYTHON_FALLBACK 由 %post 的 patch_ansible.py 改写;
-  # 以 %config(noreplace) 单独声明: 升级保留现场已改写版本 (不被包内原版覆盖)。
-  # 注意 noreplace 不免除校验: rpm -V 会把 patch 过的 base.yml 报为 S.5....T. c, 属预期。
-  # 该文件在容器内已被移出批量安装树 (pack.sh stage_ansible_base), 此处单独纳入。
-  - src: "@STAGE_DIR@/ansible_base.yml"
-    dst: /home/tsc/tsc_python/envs/tsc_python/lib/python@PYTHON_MM@/site-packages/ansible/config/base.yml
-    type: config|noreplace
-  # <<< END ansible_base_noreplace
 
 scripts:
   preinstall: "@STAGE_DIR@/rpm-scripts/preinstall"

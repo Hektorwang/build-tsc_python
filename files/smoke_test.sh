@@ -36,7 +36,8 @@ done
 
 # ---------- 自包含日志 (风格与 func 一致, 不依赖 func) ----------
 C_OK=$'\033[1;32m'; C_ERR=$'\033[1;31m'; C_WARN=$'\033[1;33m'; C_END=$'\033[0m'
-if [[ -t 1 ]]; then C_STD=""; else C_OK=""; C_ERR=""; C_WARN=""; C_END=""; fi
+# 非 TTY (管道/重定向) 下剥离颜色码
+[[ -t 1 ]] || { C_OK=""; C_ERR=""; C_WARN=""; C_END=""; }
 
 PASS=0; WARN=0; FAIL=0
 
@@ -224,10 +225,11 @@ if [[ -n "${out}" ]] && [[ ":${out}:" == *":/home/tsc/tsc_python/modules:"* ]]; 
 else
     report WARN "TSC_MODULES_DIR 含本包模块目录" "当前值为 '${out}' (tsc 可能无法发现 tsc_python_* 模块)"
 fi
-if command -v jq >/dev/null 2>&1; then
-    report PASS "jq 可用" "yq 依赖 jq"
+# jq 随包分发于 envs/tsc_python/bin (yq 的硬依赖): 优先查包内路径, 未激活环境也能命中
+if [[ -x "${ENV_BIN}/jq" ]] || command -v jq >/dev/null 2>&1; then
+    report PASS "jq 可用" "yq 依赖 jq (${ENV_BIN}/jq 随包分发)"
 else
-    report WARN "jq 可用" "缺少 jq, yq 将无法工作 (工作环境规范应已提供)"
+    report WARN "jq 可用" "缺少 jq (包内 ${ENV_BIN}/jq 缺失), yq 将无法工作"
 fi
 
 section "汇总"

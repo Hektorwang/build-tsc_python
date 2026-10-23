@@ -11,6 +11,14 @@ release 时间戳、`--python-version` 校验、`stage/` 失败路径清理、Do
 drop-in 前缀明确保序 (本包 `01-` / tsc_tools `00-`, 不再依赖字母序)、ansible 运行期写入
 包内路径 (`home` 改到 `/home/tsc/.ansible`，`retry_files_save_path` 改到
 `/var/log/tsc/ansible/retries`，`%post` 补建子目录)、跨包契约无机制校验 (接受现状, 忽略)。
+2026-10-24 第二轮审查处理: uv pip 层 `--index-url` 显式注入 (uv 不读 pip.conf, 此前
+`pypi_index` 对 pip 层无效)、base.yml 放弃 `%config(noreplace)` (跨 ansible-core 升级会留
+stale schema, 见 README-dev §4.8)、build-info.json 缺失改 fail-close 并入产物自检、
+release/ 旧产物按 mtime 保留最近 5 份 (打包失败不再连带删除)、jq 收窄到当前架构且随包分发
+(`envs/tsc_python/bin`)、depends 补 findutils、root-only 运行前提写入文档、`%post` profile
+部署改 `install -d/-m` 固定 mode、新增 CI lint (`ci/lint.sh` + GitHub Actions)。
+0.13.6: `package_rpm` 成功路径显式回收 stage 并复位 RETURN trap、模块 run.sh 补
+nounset/pipefail、构建入口加 flock 互斥。
 
 ---
 
@@ -27,11 +35,11 @@ conda-forge 的 `python` 包把 `tk >=8.6.13` 列为**运行依赖**，因此 en
 
 ## 2. 模块 run.sh 规范与 tsc_tools 不一致 (P3) —— 暂缓
 
-tsc_tools 多数功能模块以 `set -o errexit / nounset / pipefail` 开头并 `source ../../func`;
-本包三个 `tsc_python_*` 文档展示型模块在 0.13.3 已补 `errexit`, 仍缺 `nounset`/`pipefail`,
-且不 `source func`(本包 RPM 也不分发 `func`)。经 `tsc` 分发器调用时可靠父进程
-`export -f` 继承 `LOG*`/`__log`(tsc_tools >= 2.1.9 已补 `__log` 导出); 直接跑 `run.sh`
-则没有统一日志。各模块现状自洽, **不强制统一**, 接受差异。
+tsc_tools 多数功能模块 `source ../../func`; 本包三个 `tsc_python_*` 文档展示型模块
+不 `source func` (本包 RPM 也不分发 `func`)。经 `tsc` 分发器调用时可靠父进程
+`export -f` 继承 `LOG*`/`__log` (tsc_tools >= 2.1.9 已补 `__log` 导出); 直接跑 `run.sh`
+则没有统一日志。各模块现状自洽, **不强制统一**, 接受差异 (0.13.6 已对齐
+errexit/nounset/pipefail 三件套)。
 
 另: 两侧 README 都写着 `tsc --模块名 --help` 可看帮助, 实现上 `--help` 仍是透传给模块
 的普通参数(由各模块自行处理; tsc_tools 2.1.9 起部分模块已拦截)。要么由 `tsc` 分发器
@@ -39,8 +47,28 @@ tsc_tools 多数功能模块以 `set -o errexit / nounset / pipefail` 开头并 
 
 ## 3. 小事 (P3)
 
-- `nfpm.yaml.tmpl` 的 `maintainer` 是占位符 `tsc_python maintainers`, 无联系方式;
+- `nfpm.yaml.tmpl` 的 `maintainer` 是占位符 `tsc_python maintainers`, 无联系方式 (已决策忽略);
 - `smoke_test.sh` 的 TLS 探测默认地址是公网阿里云源, 内网机默认只会 WARN, 可考虑默认
   指向 `pypi_index` (需传入, 暂不值当);
 - RPM 内环境含 `info/` (micromamba recipe 元数据), 如需瘦身可在 pack.sh 评估剔除
-  (保留则便于现场核对, 现状为保留)。
+  (保留则便于现场核对, 现状为保留);
+- Dockerfile 工作目录 COPY 是显式文件清单, 漏文件不报错只会静默不随包; 可考虑把
+  `files/` 拆 runtime/ 与 tmp/ 两个子目录改整目录 COPY;
+- 卸载 (`%preun` 真卸载分支) 后 `rag.md` 不重建, 仍列 tsc_python_* 模块; 可 best-effort
+  调一次 `gen_rag.sh` (失败不阻断);
+- nfpm 版本无下限断言 (`NFPM_VERSION` 已抓取但只打日志; 语法依赖 2.47.0 验证过的
+  `type:` 语法);
+- batch_user_manager role `update_password: always` + 无盐 `password_hash('sha512')`:
+  每次重跑都会重置密码且任务恒 changed (影响实施流程, 待现场侧评估固定盐或改
+  `on_create`);
+- `%pre` 的 `check_env` 以 127 表示校验失败 (语义上是 "command not found"), 可换明确的
+  自定义退出码;
+- `FROM centos:7.9.2009` 未按 digest 钉死, 内网 registry 里的镜像被覆盖时构建无感;
+- `requirements.in` 留有大段历史注释 (Django 全家桶等), 可清理。
+
+## 4. 已决策接受 (2026-10-24, 不再处理)
+
+- micromamba 下载无 sha256 校验 (与 jq 不同, 仅 TLS 保护) —— 决策: 忽略;
+- conda 层依赖不锁定 (仅 python 钉版, 其余随 conda-forge 漂移; conda-forge glibc 基线
+  迁移时由 `check_glibc_baseline` fail-close 拦下, 不会流出超标产物) —— 决策: 忽略;
+- `ansible.cfg` 的 `host_key_checking=False` —— 团队实施设计, 接受。

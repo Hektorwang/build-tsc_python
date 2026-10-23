@@ -86,10 +86,12 @@ rpm_owns() {
 # (需要自定义片段请另建文件, 如 99-local-profile.sh, 不占用本包的名字)。
 ##################################################
 deploy_profile() {
-    mkdir -p "${TSC_PROFILE_D_DIR}"
+    # install -d/-m 固定落盘 mode: 目标机收紧的 umask (如 0077) 不影响公共入口与
+    # drop-in 的权限 (本脚本无 errexit, 与原 mkdir+chmod 行为等价)
+    install -d -m 0755 "${TSC_PROFILE_D_DIR}"
 
     if [[ ! -e "${DEST_TSC_PROFILE}" ]]; then
-        \cp "${SOURCE_TSC_PROFILE}" "${DEST_TSC_PROFILE}"
+        install -m 0644 "${SOURCE_TSC_PROFILE}" "${DEST_TSC_PROFILE}"
         LOGSUCCESS "Created ${DEST_TSC_PROFILE} (公共入口)"
     else
         LOGINFO "${DEST_TSC_PROFILE} already exists, keep it"
@@ -107,8 +109,8 @@ deploy_profile() {
     done
 
     # 本脚本不设 errexit (安装期失败不应阻断 rpm), 但 drop-in 是环境可用的前提,
-    # cp 失败必须报 ERROR 而不是 LOGSUCCESS——否则安装者看到"成功"而环境实际未生效
-    if \cp "${SOURCE_DROPIN}" "${DROPIN_FILE}"; then
+    # 安装失败必须报 ERROR 而不是 LOGSUCCESS——否则安装者看到"成功"而环境实际未生效
+    if install -m 0644 "${SOURCE_DROPIN}" "${DROPIN_FILE}"; then
         LOGSUCCESS "Deployed drop-in ${DROPIN_FILE} (本包独占, 升级刷新/卸载回收, 不保留本地修改)"
     else
         LOGERROR "Failed to deploy drop-in ${DROPIN_FILE}: 本包环境将不可用, 请检查磁盘与权限"
@@ -146,11 +148,7 @@ chmod 0755 "${ENV_ROOT}"/modules/*/run.sh 2>/dev/null ||
 # 0750: ansible 日志可能含敏感信息 (主机清单/凭据片段), 不放行 other 读
 # ansible.cfg: log_path=/var/log/tsc/ansible.log
 #              retry_files_save_path=/var/log/tsc/ansible/retries
-mkdir -p "${LOG_DIR}"
-chmod 0750 "${LOG_DIR}"
-mkdir -p "${LOG_DIR}/ansible/retries"
-chmod 0750 "${LOG_DIR}/ansible"
-chmod 0750 "${LOG_DIR}/ansible/retries"
+install -d -m 0750 "${LOG_DIR}" "${LOG_DIR}/ansible" "${LOG_DIR}/ansible/retries"
 
 # 3. profile: 公共入口 + 本包 drop-in (须早于 gen_rag, 让它取到 TSC_MODULES_DIR)
 if ! deploy_profile; then

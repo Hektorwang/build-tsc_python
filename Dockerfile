@@ -8,6 +8,9 @@ ARG MICROMAMBA_DIR=/home/tsc/tsc_python
 ARG ENV_NAME=tsc_python
 ARG REPO_LOCAL=
 ARG MAMBA_ROOT_PREFIX=/home/tsc/tsc_python
+# 本包架构 (决定 COPY 哪个 jq 静态二进制) 与 pip 层索引地址, 均由 build.sh 注入
+ARG ARCH=
+ARG PYPI_INDEX=
 
 # 将构建参数导出为环境变量，供容器内 build.sh 使用
 ENV MAMBA_ROOT_PREFIX=${MAMBA_ROOT_PREFIX}
@@ -31,14 +34,12 @@ RUN case $(arch) in \
     && yum clean all && rm -rf /var/cache/yum \
     && ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && echo "Asia/Shanghai" > /etc/timezone
 
-# jq 使用 build.sh 按需下载并缓存的静态二进制 (files/tmp/), 不依赖 EPEL
-# 注意: 两个架构的 jq 文件都必须存在 (build.sh 的 ensure_jq 会同时下载 x86_64 与 aarch64),
-# 请始终通过 build.sh 触发构建; 直接 `docker build` 而 files/tmp 未备齐时会因 COPY 源缺失而失败。
-COPY ./files/tmp/jq-x86_64 ./files/tmp/jq-aarch64 /tmp/
-RUN case $(arch) in \
-        x86_64)  install -m 0755 /tmp/jq-x86_64  /usr/local/bin/jq ;; \
-        aarch64) install -m 0755 /tmp/jq-aarch64 /usr/local/bin/jq ;; \
-    esac && rm -f /tmp/jq-* && jq --version
+# jq 使用 build.sh 按需下载并缓存的静态二进制 (files/tmp/, 仅当前架构), 不依赖 EPEL
+# COPY 源路径引用 ARG 需要 BuildKit (build.sh 的 docker build 即 BuildKit)。
+# 请始终通过 build.sh 触发构建 (会传入 --build-arg ARCH); 直接 `docker build` 而
+# files/tmp 未备齐时会因 COPY 源缺失而失败。
+COPY ./files/tmp/jq-${ARCH} /tmp/jq-bin
+RUN install -m 0755 /tmp/jq-bin /usr/local/bin/jq && rm -f /tmp/jq-bin && jq --version
 
 # micromamba 由 build.sh 预下载到 files/tmp/，此处直接 COPY 进容器
 COPY ./files/tmp/micromamba /tmp/micromamba
@@ -63,6 +64,9 @@ COPY ./files/requirements.txt /tmp/
 # 一旦 micromamba activate 失败, `|| true` 会把整条链救成真, uv pip install 继续在未激活的
 # 环境 (EL7 上是系统 python 2.7) 里执行——装出的包根本不在 payload 中, 而构建仍标记成功。
 # 因此: `|| true` 只兜住 arch 判断本身, activate 结果在下一条 RUN 语句内显式断言。
+# uv 不读取 pip.conf (官方兼容性约定: 亦不读 PIP_INDEX_URL 等 pip 专属配置),
+# pip 层源地址必须经 --index-url 显式传入 (build.sh 经 --build-arg PYPI_INDEX 注入),
+# 空值在此显式断言拦下, 不让 uv 静默回落到默认 pypi.org。
 RUN export MAMBA_ROOT_PREFIX && \
     eval "$("${MICROMAMBA_DIR}/bin/micromamba" shell hook --shell bash)" && \
     micromamba activate "${ENV_NAME}" && \
@@ -70,7 +74,8 @@ RUN export MAMBA_ROOT_PREFIX && \
     test -n "${CONDA_PREFIX}" && \
     test "${CONDA_PREFIX}" = "${MICROMAMBA_DIR}/envs/${ENV_NAME}" && \
     grep -vE '^(cffi|cryptography|packaging|pycparser|typing-extensions)==' /tmp/requirements.txt > /tmp/requirements.pip.txt && \
-    uv pip install -r /tmp/requirements.pip.txt
+    test -n "${PYPI_INDEX}" && \
+    uv pip install --index-url "${PYPI_INDEX}" -r /tmp/requirements.pip.txt
 
 # 工作目录只放打包必需的源文件: files/tmp/ 下的 micromamba/jq 缓存与构建期配置
 # (condarc/pip.conf/environment.yml) 已由上方专用 COPY 直接进 /tmp, 不在此重复,

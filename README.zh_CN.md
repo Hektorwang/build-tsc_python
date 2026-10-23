@@ -36,6 +36,9 @@ rpm -e tsc_python
 的 `gen_rag.sh` 重建 `rag.md`、给 ansible 的 `INTERPRETER_PYTHON_FALLBACK` 列表插入本环境
 python3。所有步骤幂等。
 
+**运行身份**: 本包以 **root 运行**为前提——包内容、profile drop-in 与 `/var/log/tsc`
+均为 root 属主且仅 root 可用（本包不创建独立运行用户），安装、使用与卸载全程需要 root。
+
 环境通过 profile **片段 (drop-in)** 暴露，与 `tsc_tools >= 2.1.8` 的分工一致（2.1.6 是首个提供 drop-in 加载器的版本，2.1.8 是本包声明的硬依赖下限）：
 
 | 路径 | 归属 | 卸载是否删除 |
@@ -113,7 +116,7 @@ source /home/tsc/tsc_profile.d/01-tsc_python-profile.sh # 只加载本包环境
 | 资源 | 获取方式 |
 | --- | --- |
 | 构建容器镜像 `centos:7.9.2009`（x86_64 / aarch64 各一份） | 提前从公网拉取并固化保存到内网镜像仓库（见下节） |
-| yum 源（CentOS 7.9 Base ISO 即可） | 用 vault 存档的 7.9.2009 ISO `createrepo` 自建, 地址经 `--repo-local` 传入; jq 由脚本按需下载的静态二进制提供（缓存于 `files/tmp/`）, 不需要 EPEL |
+| yum 源（CentOS 7.9 Base ISO 即可） | 用 vault 存档的 7.9.2009 ISO `createrepo` 自建, 地址经 `--repo-local` 传入; jq 由脚本按需下载的静态二进制提供（缓存于 `files/tmp/`, 仅当前架构）, 不需要 EPEL |
 | micromamba 二进制 | 在有外网的机器从 `micro.mamba.pm` 下载一次, 拷入构建机 `files/tmp/`（见"第三方组件缓存"） |
 | PyPI 源 / conda-forge 源 | 默认教育网联合镜像站, 经 `build.conf` 的 `pypi_index`/`conda_forge` 自定义; 离线构建改为内网源（见"内网部署说明"） |
 
@@ -207,7 +210,7 @@ bash build.sh --python-version 3.12.11
 | 组件 | 缓存位置 | 上游 |
 | --- | --- | --- |
 | micromamba | `files/tmp/micromamba` (+ `.version`) | micro.mamba.pm |
-| jq (双架构静态二进制) | `files/tmp/jq-x86_64` / `jq-aarch64` (带 sha256 校验) | github.com/jqlang/jq |
+| jq (静态二进制, 仅当前架构) | `files/tmp/jq-<arch>` (带 sha256 校验, 随包分发) | github.com/jqlang/jq |
 
 离线构建机可从有外网的机器手动放置, 先在有外网的机器上下载（以 2.9.0 / x86_64 为例, aarch64 用 `linux-aarch64`）:
 
@@ -226,7 +229,7 @@ files/tmp/micromamba.version  # 文本文件, 内容如: 2.9.0-x86_64
 
 ```bash
 rm -f files/tmp/micromamba files/tmp/micromamba.version
-rm -f files/tmp/jq-x86_64 files/tmp/jq-aarch64
+rm -f files/tmp/jq-<arch>   # 如 jq-x86_64
 ```
 
 ### 构建产物
@@ -241,6 +244,10 @@ tsc_python-<version>-<release>.<arch>.rpm.sha256 # SHA256 校验文件
 `<version>` 取自 `release-note.md` 的 `Version=`, `<release>` 为构建时间戳 (`YYYYMMDDHHMMSS`).
 构建元数据 (python / micromamba 版本、glibc 基线) 随包分发在
 `/home/tsc/tsc_python/build-info.json`.
+
+`release/` 只保留最近 5 份本架构产物（打包成功后按修改时间回收更旧的，含对应 `.sha256`）；
+打包失败不会动已有产物。同机同时只允许一个 `build.sh` 实例（入口 flock 互斥，
+第二个实例会直接退出）。
 
 ### 构建日志
 
@@ -295,7 +302,9 @@ uv pip compile files/requirements.in -o files/requirements.txt --no-header --no-
 
 构建所需的外部资源与对应配置：
 
-- **PyPI 源**: 默认教育网联合镜像站; 离线构建机用 `build.conf` 的 `pypi_index`（或 `--pypi-index`）指向内网源
+- **PyPI 源**: 默认教育网联合镜像站; 离线构建机用 `build.conf` 的 `pypi_index`（或 `--pypi-index`）指向内网源。
+  该地址经 `--build-arg` 注入构建容器并以 `--index-url` 显式传给 `uv pip install`——uv 不读取 pip.conf，
+  必须显式指定才会生效
 - **conda-forge 源**: 默认教育网联合镜像站的 conda-forge 通道; 离线构建机用 `build.conf` 的 `conda_forge`（或 `--conda-forge`）指向内网通道, 也可指向自建的最小化 conda-forge 源（见下）
 - **Docker 基础镜像**: 推送到内网镜像仓库后修改 `Dockerfile` 的 `FROM` 地址（见"固化保存 EL7 构建镜像"）
 - **yum 源**: 见下节
@@ -340,6 +349,7 @@ bash build.sh --repo-local http://<your-internal-repo-server>
 本项目自身代码以 **GPL-3.0-or-later** 发布, 见根目录 [LICENSE](LICENSE).
 
 仓库引用的第三方组件遵循其各自许可证, 详见 [THIRD_PARTY_NOTICES.zh_CN.md](THIRD_PARTY_NOTICES.zh_CN.md) (英文版: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)):
-micromamba 二进制 (BSD-3-Clause) 与 jq 静态二进制 (MIT) 均在构建时按锁定版本获取, 不随本仓库分发.
+micromamba 二进制 (BSD-3-Clause) 与 jq 静态二进制 (MIT) 均在构建时按锁定版本获取, 不随本仓库分发;
+其中 jq 静态二进制会随 RPM 产物分发于 `envs/tsc_python/bin/jq` (yq 的硬依赖, 目标机未必自带)。
 
 由本工具产出的 tsc_python RPM 包仅面向内部环境分发.

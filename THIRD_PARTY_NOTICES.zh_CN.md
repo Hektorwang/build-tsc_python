@@ -14,6 +14,9 @@
 | --- | --- | --- | --- |
 | Python | 见包内元数据 | PSF-2.0 (BSD 风格) | https://www.python.org |
 | micromamba | 见包内元数据 | BSD-3-Clause | https://github.com/mamba-org/mamba |
+| jq (静态二进制) | 构建时锁定 | MIT | https://github.com/jqlang/jq |
+
+jq 以纯静态二进制随包分发于 `<env>/bin/jq` (yq 的硬依赖, 目标机未必自带); 未修改分发, MIT 许可证的声明义务由本声明与上游源码可得性满足.
 
 ### conda 层第三方库
 
@@ -55,7 +58,7 @@ pip 装包的许可证以各自 `*.dist-info/METADATA` 的 `License` 字段与�
 
 | 组件 | 许可证 | 来源 | 说明 |
 | --- | --- | --- | --- |
-| jq | MIT | https://github.com/jqlang/jq | 构建时按锁定版本获取, 仅在构建容器内使用 |
+| jq | MIT | https://github.com/jqlang/jq | 构建时按锁定版本获取, 并随 RPM 分发 (见第一节) |
 | nfpm | MIT | https://nfpm.goreleaser.com | 由打包机提供, 仅用于组装 RPM |
 
 本仓库自身代码以 **GPL-3.0-or-later** 发布, 见仓库根目录 `LICENSE`.

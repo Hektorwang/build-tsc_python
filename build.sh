@@ -28,6 +28,20 @@ DOCKERFILE="Dockerfile"
 # 函数库唯一副本在 files/func (容器内由 Dockerfile COPY 到工作目录, pack.sh 源同一份)
 source "${WORK_DIR}/files/func"
 
+# 同机互斥: 并发 build.sh 会互踩 stage/ 与 release/ 的清理 (清空 output/<arch>、
+# 回收旧产物), 第二个实例直接退出。锁文件零字节, 已入 .gitignore;
+# flock 属 util-linux, 缺失时显式报错而不是静默失去互斥
+BUILD_LOCK="${WORK_DIR}/.build.lock"
+if ! command -v flock &>/dev/null; then
+    LOGERROR "缺少 flock (util-linux), 无法保证构建互斥"
+    exit 1
+fi
+exec 9>"${BUILD_LOCK}"
+if ! flock -n 9; then
+    LOGERROR "已有构建正在运行 (锁: ${BUILD_LOCK}), 同机只允许一个 build.sh 实例"
+    exit 1
+fi
+
 trap gracefully_abort INT
 
 # 默认参数
@@ -173,7 +187,7 @@ EOF
 
 LOGINFO "Generated: ${condarc_tmp} / ${pip_conf_tmp}"
 
-# python 主.次版本 (用于 ansible base.yml 的 %config(noreplace) 安装路径)
+# python 主.次版本 (产物自检 need_file 里 base.yml 等条目锚定 lib/python<MM> 路径)
 # 用 sed -n '1p' 而非 head -n1: head 提前退出会让上游 grep 收到 SIGPIPE 返回 141,
 # 在 pipefail + errexit 下脚本无任何提示直接中断
 py_mm="$(grep -oE 'python=[0-9]+\.[0-9]+' "${env_yml_tmp}" | sed -n '1p' | sed 's/^python=//')" || py_mm=""
@@ -223,41 +237,42 @@ jq_sha256_x86_64="020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a
 jq_sha256_aarch64="6bc62f25981328edd3cfcfe6fe51b073f2d7e7710d7ef7fcdac28d4e384fc3d4"
 
 ensure_jq() {
-    local arch url file sum expected
-    for arch in x86_64 aarch64; do
-        file="${TMP_DIR}/jq-${arch}"
-        case "${arch}" in
-            x86_64)  url="https://github.com/jqlang/jq/releases/download/jq-${jq_version}/jq-linux-amd64" ;;
-            aarch64) url="https://github.com/jqlang/jq/releases/download/jq-${jq_version}/jq-linux-arm64" ;;
-        esac
-        expected="${jq_sha256_x86_64}"
-        [[ "${arch}" == "aarch64" ]] && expected="${jq_sha256_aarch64}"
-        if [[ -f "${file}" ]]; then
-            sum="$(sha256sum "${file}" | awk '{print $1}')"
-            if [[ "${sum}" == "${expected}" ]]; then
-                LOGINFO "jq cache hit: ${file}"
-                continue
-            fi
-            LOGINFO "jq cache checksum mismatch (${arch}), re-downloading"
+    local url file sum expected
+    # 只取当前架构: aarch64 的 jq 只在 ARM 机器构建时才用得上,
+    # 强制双架构齐备会让 x86_64 构建机因 aarch64 下载失败而中断
+    file="${TMP_DIR}/jq-${ARCH}"
+    case "${ARCH}" in
+        x86_64)  url="https://github.com/jqlang/jq/releases/download/jq-${jq_version}/jq-linux-amd64" ;;
+        aarch64) url="https://github.com/jqlang/jq/releases/download/jq-${jq_version}/jq-linux-arm64" ;;
+        *)       LOGERROR "Unsupported architecture: ${ARCH}"; return 1 ;;
+    esac
+    expected="${jq_sha256_x86_64}"
+    [[ "${ARCH}" == "aarch64" ]] && expected="${jq_sha256_aarch64}"
+    if [[ -f "${file}" ]]; then
+        sum="$(sha256sum "${file}" | awk '{print $1}')"
+        if [[ "${sum}" == "${expected}" ]]; then
+            LOGINFO "jq cache hit: ${file}"
+            return 0
         fi
-        LOGINFO "Downloading jq ${jq_version} for ${arch}..."
-        # 先落临时文件再校验: 直接 --output 到目标路径的话, 下载到损坏/被篡改的
-        # 二进制会被原样用进容器, 只有下一次构建才发现不匹配
-        if ! curl --fail --location --output "${file}.dl" "${url}"; then
-            LOGERROR "jq 下载失败 (${arch}): ${url}"
-            return 1
-        fi
-        sum="$(sha256sum "${file}.dl" | awk '{print $1}')"
-        if [[ "${sum}" != "${expected}" ]]; then
-            LOGERROR "jq 下载完整性校验失败 (${arch}): 期望 ${expected}, 实际 ${sum}"
-            rm -f "${file}.dl"
-            return 1
-        fi
-        mv -f "${file}.dl" "${file}"
-        chmod +x "${file}"
-        LOGSUCCESS "jq ${jq_version} (${arch}) downloaded and verified"
-    done
-    LOGSUCCESS "jq ready: ${TMP_DIR}/jq-x86_64 / ${TMP_DIR}/jq-aarch64"
+        LOGINFO "jq cache checksum mismatch (${ARCH}), re-downloading"
+    fi
+    LOGINFO "Downloading jq ${jq_version} for ${ARCH}..."
+    # 先落临时文件再校验: 直接 --output 到目标路径的话, 下载到损坏/被篡改的
+    # 二进制会被原样用进容器, 只有下一次构建才发现不匹配
+    if ! curl --fail --location --output "${file}.dl" "${url}"; then
+        LOGERROR "jq 下载失败 (${ARCH}): ${url}"
+        return 1
+    fi
+    sum="$(sha256sum "${file}.dl" | awk '{print $1}')"
+    if [[ "${sum}" != "${expected}" ]]; then
+        LOGERROR "jq 下载完整性校验失败 (${ARCH}): 期望 ${expected}, 实际 ${sum}"
+        rm -f "${file}.dl"
+        return 1
+    fi
+    mv -f "${file}.dl" "${file}"
+    chmod +x "${file}"
+    LOGSUCCESS "jq ${jq_version} (${ARCH}) downloaded and verified"
+    LOGSUCCESS "jq ready: ${TMP_DIR}/jq-${ARCH}"
 }
 
 ensure_jq
@@ -285,6 +300,8 @@ build_target() {
         --target builder \
         --tag "${image_tag}" \
         --build-arg REPO_LOCAL="${repo_local}" \
+        --build-arg ARCH="${ARCH}" \
+        --build-arg PYPI_INDEX="${pypi_index}" \
         --file "${DOCKERFILE}" \
         "${WORK_DIR}" \
         2>&1 | tee "${log_file}" || build_ok=1
@@ -348,7 +365,8 @@ render_template() {
 package_rpm() {
     local payload_dir="${OUTPUT_DIR}/${ARCH}/payload"
 
-    # stage/ 由 RETURN trap 统一回收: 覆盖成功路径与所有 return 1 失败路径。
+    # stage/ 由 RETURN trap 回收所有 return 1 失败路径; 成功路径在函数尾部显式回收并
+    # 复位 trap——不复位的话, 其后每个函数返回 (含 LOG*) 都会再触发一次 rm -rf。
     # RETURN trap 不被本函数调用的子函数继承 (未开 functrace), 只在本函数返回时触发
     trap 'rm -rf "${STAGE_DIR}"' RETURN
 
@@ -374,8 +392,10 @@ package_rpm() {
     fi
     readonly NFPM_BIN="${nfpm_bin}"
     # || true: grep 匹配不到时 pipefail 会把非零传给 errexit, 脚本在打印 nfpm 版本
-    # 这一行直接中断, ${NFPM_VERSION:-unknown} 的兜底永远到不了
-    readonly NFPM_VERSION="$("${NFPM_BIN}" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n1)" || true
+    # 这一行直接中断, ${NFPM_VERSION:-unknown} 的兜底永远到不了; 先赋值再 readonly,
+    # 避免 local+赋值合一掩盖管道返回值 (SC2155)
+    NFPM_VERSION="$("${NFPM_BIN}" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n1)" || true
+    readonly NFPM_VERSION
     LOGINFO "Using packager: ${NFPM_BIN} (nfpm ${NFPM_VERSION:-unknown})"
 
     # ---------- 2. 版本号 ----------
@@ -416,21 +436,6 @@ package_rpm() {
         return 1
     fi
 
-    # 防御: base.yml 不能留在批量安装树里——它与下方 %config(noreplace) 独立条目指向同一目标,
-    # 留着会触发 nfpm content collision。容器侧 pack.sh 已抽出并删除, 这里再确保批量树里没有它。
-    local staged_base
-    staged_base="$(find "${STAGE_DIR}/payload" -path '*/ansible/config/base.yml' -print -quit 2>/dev/null)"
-    if [[ -n "${staged_base}" ]]; then
-        \rm -f "${staged_base}"
-        LOGINFO "已从批量安装树移除 base.yml 以避免 collision: ${staged_base}"
-    fi
-
-    # ansible base.yml: 容器侧已移出安装树单独暂存 (pack.sh stage_ansible_base),
-    # 这里并入 stage, 供 nfpm 以 %config(noreplace) 单独声明
-    if [[ -f "${OUTPUT_DIR}/${ARCH}/staged/ansible_base.yml" ]]; then
-        \cp "${OUTPUT_DIR}/${ARCH}/staged/ansible_base.yml" "${STAGE_DIR}/ansible_base.yml"
-    fi
-
     # ---------- 3.5 版本一致性断言 ----------
     # build-info.json 的 version 由容器内 pack.sh 按 release-note.md 独立解析,
     # 与 RPM NVR 各解一次; 两处漂移会让包内元数据与包版本不符, 在此显式比对
@@ -444,7 +449,10 @@ package_rpm() {
         fi
         LOGINFO "build-info.json 版本一致: ${info_version}"
     else
-        LOGWARNING "未找到 ${build_info}, 跳过版本一致性断言"
+        # pack.sh 无条件生成该文件, 缺失即容器侧构建异常; 放行会让包内元数据与包
+        # 版本脱钩——与其余门禁 (glibc/占位符/PYTHON_MM) 的 fail-close 口径保持一致
+        LOGERROR "未找到 ${build_info}, 容器内 pack.sh 未生成构建元数据"
+        return 1
     fi
 
     # ---------- 4. 生成 RPM scriptlet ----------
@@ -491,27 +499,26 @@ package_rpm() {
         return 1
     fi
 
-    # ---------- 4.5 @PYTHON_MM@ 与真实环境的一致性断言 ----------
+    # ---------- 4.5 python 主.次版本与真实环境的一致性断言 ----------
     # py_mm 由 environment.yml 文本正则抠出, 而真实目录名由 conda 解析结果决定,
-    # 二者漂移会让 base.yml 以一个不存在的路径入包: %post 的 patch 与
-    # %config(noreplace) 同时失效, 而产物自检查不出来
+    # 二者漂移会让产物自检 need_file 里锚定 python<MM> 的条目 (base.yml 等)
+    # 指向不存在的路径
     local env_py_dir site_dir
     env_py_dir="$(find "${STAGE_DIR}/payload/home/tsc/tsc_python/envs/tsc_python/lib" \
         -maxdepth 1 -type d -name "python${py_mm}" -print -quit 2>/dev/null)"
     site_dir="${env_py_dir}/site-packages/ansible/config"
     if [[ -z "${env_py_dir}" || ! -d "${site_dir}" ]]; then
-        LOGERROR "@PYTHON_MM@ (${py_mm}) 与真实环境不符: 未找到 ${site_dir}"
+        LOGERROR "python 版本 (${py_mm}) 与真实环境不符: 未找到 ${site_dir}"
         LOGERROR "请核对 environment.yml 的 python 版本与 conda 解析结果"
         return 1
     fi
-    LOGINFO "@PYTHON_MM@ 校验通过: python${py_mm}"
+    LOGINFO "python 主.次版本校验通过: python${py_mm}"
 
     # ---------- 5. 生成 nfpm 配置并打包 ----------
     local nfpm_config="${STAGE_DIR}/nfpm.yaml"
     sed -e "s|@VERSION@|${version}|g" \
         -e "s|@RELEASE@|${release}|g" \
         -e "s|@ARCH@|${ARCH}|g" \
-        -e "s|@PYTHON_MM@|${py_mm}|g" \
         -e "s|@STAGE_DIR@|${STAGE_DIR}|g" \
         "${PACKAGING_DIR}"/nfpm.yaml.tmpl >"${nfpm_config}"
 
@@ -523,24 +530,11 @@ package_rpm() {
         return 1
     fi
 
-    # 兜底: 若 ansible base.yml 暂存缺失 (不应发生), 去掉 %config(noreplace) 段,
-    # 否则 nfpm 会因 src 不存在而打包失败。
-    # 区间由模板里的哨兵注释界定 (# >>> BEGIN / # <<< END ansible_base_noreplace),
-    # 不再锚在中文注释文案上——文案一改区间就匹配不到, 且结束行被改时会一路删到文件尾,
-    # 把 scripts: 段一起删掉而 nfpm 不报错。
-    if [[ ! -f "${STAGE_DIR}/ansible_base.yml" ]]; then
-        LOGWARNING "ansible_base.yml 暂存缺失, 跳过 %config(noreplace) 声明"
-        sed -i '/# >>> BEGIN ansible_base_noreplace/,/# <<< END ansible_base_noreplace/d' "${nfpm_config}"
-        # 摘完必须确认: 摘不掉的话产物会带着指向不存在 src 的条目, nfpm 报的错
-        # 与真实原因 (哨兵被改动) 相距很远
-        if grep -q 'ansible_base.yml' "${nfpm_config}"; then
-            LOGERROR "未能摘除 ansible_base.yml 的 %config(noreplace) 条目, 哨兵注释可能被改动"
-            return 1
-        fi
-    fi
-
     mkdir -p "${RELEASE_DIR}"
-    rm -f "${RELEASE_DIR}"/tsc_python-*-"${ARCH}".rpm "${RELEASE_DIR}"/tsc_python-*-"${ARCH}".rpm.sha256
+    # 只清同 NVR 目标文件 (秒级时间戳下几乎不触发, 防覆盖不完整):
+    # 不再打包前全删旧产物——nfpm 失败会把本机上一份可用 RPM 一并带走;
+    # 旧产物改为打包成功后按 mtime 只保留最近 5 份 (见下方 section 7)
+    rm -f "${release_file}" "${release_file}.sha256"
 
     LOGINFO "Build Start --> ${release_file}"
     "${NFPM_BIN}" package --packager rpm --config "${nfpm_config}" --target "${RELEASE_DIR}/"
@@ -566,9 +560,10 @@ package_rpm() {
         fi
 
         # 关键文件必须齐全
-        # base.yml 是唯一以 %config(noreplace) 声明的条目: 暂存缺失时上面的兜底会
-        # 把整段删掉, 不在此断言的话产物会静默丢掉 ansible 解释器回退配置;
-        # patch_ansible.py 是 %post 改写 base.yml 的唯一手段, 同样必须入包
+        # base.yml 以普通文件随批量安装树入包 (0.13.5 起放弃 %config(noreplace):
+        # 升级由 rpm 覆盖为新版原版, %post 幂等重打解释器补丁);
+        # patch_ansible.py 是 %post 改写 base.yml 的唯一手段;
+        # build-info.json 是包内构建元数据; jq 随包供 yq 使用 (目标机未必自带)
         local need_file f
         need_file=(
             "/home/tsc/tsc_python/tsc_profile"
@@ -576,8 +571,10 @@ package_rpm() {
             "/home/tsc/tsc_python/bin/micromamba"
             "/home/tsc/tsc_python/envs/tsc_python/bin/python3"
             "/home/tsc/tsc_python/envs/tsc_python/bin/ansible"
+            "/home/tsc/tsc_python/envs/tsc_python/bin/jq"
             "/home/tsc/tsc_python/smoke_test.sh"
             "/home/tsc/tsc_python/patch_ansible.py"
+            "/home/tsc/tsc_python/build-info.json"
             "/home/tsc/tsc_python/ansible/ansible.cfg"
             "/home/tsc/tsc_python/modules/tsc_python_changehostname/run.sh"
             "/home/tsc/tsc_python/envs/tsc_python/lib/python${py_mm}/site-packages/ansible/config/base.yml"
@@ -593,6 +590,7 @@ package_rpm() {
         local need_exec
         need_exec=(
             "/home/tsc/tsc_python/bin/micromamba"
+            "/home/tsc/tsc_python/envs/tsc_python/bin/jq"
             "/home/tsc/tsc_python/modules/tsc_python_changehostname/run.sh"
         )
         for f in "${need_exec[@]}"; do
@@ -622,10 +620,26 @@ package_rpm() {
         cd "${RELEASE_DIR}" || exit 99
         sha256sum "$(basename "${release_file}")" >"$(basename "${release_file}").sha256"
     )
+
+    # 旧产物按 mtime 只保留最近 5 份 (含对应 .sha256): 打包失败路径不动旧产物,
+    # 打包成功后在这里回收更旧的; 用 find 而非 glob 展开 (nullglob 下无匹配会
+    # 令 ls 缺参转为列当前目录)。注意文件名里架构前是 '.' 不是 '-'
+    # (tsc_python-<version>-<release>.<arch>.rpm)
+    local keep=5 old_rpm
+    while IFS= read -r old_rpm; do
+        rm -f "${old_rpm}" "${old_rpm}.sha256"
+        LOGINFO "回收旧产物 (超出保留 ${keep} 份): ${old_rpm}"
+    done < <(find "${RELEASE_DIR}" -maxdepth 1 -type f -name "tsc_python-*.${ARCH}.rpm" \
+        -printf '%T@\t%p\n' | sort -rn | tail -n +$((keep + 1)) | cut -f2-)
+
     LOGINFO "Size:    $(du -h "${release_file}" | cut -f1)"
     LOGINFO "SHA256:  $(sha256sum "${release_file}" | cut -d' ' -f1)"
 
     LOGSUCCESS "Build Over --> ${release_file}"
+
+    # 成功路径: 显式回收 stage 并复位 RETURN trap (见函数头注释), 失败路径仍由 trap 覆盖
+    rm -rf "${STAGE_DIR}"
+    trap - RETURN
     return 0
 }
 

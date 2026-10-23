@@ -13,6 +13,8 @@
 ```
 build.sh                            构建入口: 拉起容器 → 取回 payload → 渲染 scriptlet → nfpm 打 RPM → 产物自检
 Dockerfile                          唯一构建镜像 (CentOS 7.9, glibc 2.17 基线)
+ci/lint.sh                          CI/本地通用静态检查 (shellcheck + bash -n, 含 scriptlet 渲染产物)
+.github/workflows/lint.yml          GitHub Actions CI (跑 ci/lint.sh)
 packaging/rpm/
   nfpm.yaml.tmpl                    nfpm 包定义模板(占位符 @VERSION@ @RELEASE@ @ARCH@ @STAGE_DIR@)
   preinstall.sh.tmpl                %pre  模板, 内含 `# >>> INJECT <file>` 注入标记
@@ -24,7 +26,7 @@ packaging/rpm/
 .supported_env.conf                 支持矩阵 (架构白名单 + glibc 基线)
 release-note.md                     版本号来源 (文件内第一个 `Version=`)
 files/
-  pack.sh                           容器内打包脚本 (安装树 + build-info.json)
+  pack.sh                           容器内打包脚本 (安装树 + jq 随包 + build-info.json)
   tsc_profile                       tsc_profile 公共入口模板 (%post 在入口缺失时部署)
   profile                           本包 drop-in 源 (%post 部署为 tsc_profile.d/01-tsc_python-profile.sh)
   ansible/                          ansible.cfg / hosts / roles (随包分发)
@@ -32,7 +34,7 @@ files/
   smoke_test.sh                     安装后冒烟测试 (随包分发)
   patch_ansible.py                  ansible 解释器补丁 (随包分发)
 output/<arch>/payload/home/tsc/     中间产物: 安装树 (相对 /home/tsc)
-release/                            RPM 产物
+release/                            RPM 产物 (按 mtime 只保留最近 5 份)
 KNOWN_ISSUES.md                     审查发现的暂缓事项清单 (不随包分发, 修复一项划掉一项)
 ```
 
@@ -43,21 +45,24 @@ KNOWN_ISSUES.md                     审查发现的暂缓事项清单 (不随包
 | 步骤 | 动作 |
 |---|---|
 | 1 | 解析参数与 `build.conf`（micromamba 版本、yum 源、Python 版本、PyPI/conda 源） |
-| 2 | 预下载 micromamba 与 jq 静态二进制到 `files/tmp/`（缓存优先，jq 带 sha256 校验） |
+| 2 | 预下载 micromamba 与 jq 静态二进制到 `files/tmp/`（缓存优先，jq 带 sha256 校验；均只取当前架构） |
 | 3 | 生成构建期配置 `environment.yml` / `condarc` / `pip.conf` 到 `files/tmp/` |
-| 4 | `docker build --target builder`；容器内 `files/pack.sh` 做 glibc 门限检查并组装安装树到 `output/payload/` |
+| 4 | `docker build --target builder`（注入 `REPO_LOCAL` / `ARCH` / `PYPI_INDEX`；pip 层 `uv pip install --index-url` 显式使用 `PYPI_INDEX`——uv 不读 pip.conf）；容器内 `files/pack.sh` 做 glibc 门限检查并组装安装树到 `output/payload/` |
 | 5 | `docker cp` 取回产物到 `output/<arch>/`（取回前**整体清空**该目录：`docker cp` 是目录合并语义，不清会把旧布局残留合并进 payload） |
 | 6 | **依赖检查**：打包机需提供 `nfpm`（默认 `/bin/nfpm`，可用 `NFPM_BIN` 覆盖） |
 | 7 | **版本解析**：取 `release-note.md` 第一个 `Version=`；含 `-` 直接报错（RPM Version 不允许） |
 | 8 | **stage**：`output/<arch>/payload/home/tsc` → `stage/payload/home/tsc` |
 | 9 | **scriptlet**：`render_template` 把 `# >>> INJECT <file>` 换为该文件内容，再 `sed` 替换 `@ARCH@` |
-| 10 | **scriptlet 语法自检**：四个脚本逐个 `bash -n`；随包脚本（`modules/*/run.sh`、`smoke_test.sh`）同样逐个 `bash -n`；再断言 `%pre` 含 `SUPPORTED_ARCHITECTURES=`/`check_env()`、无残留 `@ARCH@`，`%post` 含 `LOGINFO()`；并比对 `build-info.json` 版本与 RPM 版本一致（两处独立解析 `release-note.md`，防漂移） |
-| 10.5 | **`@PYTHON_MM@` 一致性断言**：`stage` 内必须存在 `lib/python<MM>/site-packages/ansible/config/`，否则 base.yml 会以不存在的路径入包 |
+| 10 | **scriptlet 语法自检**：四个脚本逐个 `bash -n`；随包脚本（`modules/*/run.sh`、`smoke_test.sh`）同样逐个 `bash -n`；再断言 `%pre` 含 `SUPPORTED_ARCHITECTURES=`/`check_env()`、无残留 `@ARCH@`，`%post` 含 `LOGINFO()`；并比对 `build-info.json` 版本与 RPM 版本一致（缺失即中止，pack.sh 无条件生成该文件） |
+| 10.5 | **python 主.次版本一致性断言**：`stage` 内必须存在 `lib/python<MM>/site-packages/ansible/config/`（产物自检 need_file 里锚定 `python<MM>` 的条目依赖它） |
 | 11 | 渲染 `nfpm.yaml`（渲染后反向断言无残留 `@XXX@` 占位符）并 `nfpm package --packager rpm` |
-| 12 | **产物自检**：包信息 / `Requires` / 文件数 / 架构与构建架构一致 / 关键文件齐全（含 `patch_ansible.py` 与 `%config(noreplace)` 的 base.yml）/ 关键文件可执行位 / 四段 scriptlet 是否写入 |
-| 13 | 生成 `.sha256`；`stage/` 与构建期临时配置由 EXIT trap 统一回收（`package_rpm` 的 RETURN trap 覆盖不到 Ctrl-C 中断路径） |
+| 12 | **产物自检**：包信息 / `Requires` / 文件数 / 架构与构建架构一致 / 关键文件齐全（`patch_ansible.py`、`base.yml`、`build-info.json`、jq）/ 关键文件可执行位 / 四段 scriptlet 是否写入 |
+| 13 | 生成 `.sha256`；`release/` 按 mtime 只保留最近 5 份产物（打包失败路径不动旧产物）；`stage/` 与构建期临时配置由 EXIT trap 统一回收（`package_rpm` 的 RETURN trap 覆盖不到 Ctrl-C 中断路径） |
 
 产物：`release/tsc_python-<version>-<release>.<arch>.rpm`（`release` 取构建时间戳 `YYYYMMDDHHMMSS`）。
+
+另：构建入口有 flock 互斥（仓库根 `.build.lock`，已入 `.gitignore`）——同机并发 `build.sh`
+会互踩 `output/<arch>` 清空与 `release/` 旧产物回收，第二个实例直接退出。
 
 ---
 
@@ -147,18 +152,15 @@ KNOWN_ISSUES.md                     审查发现的暂缓事项清单 (不随包
 
 `build.sh` 开头固定 `umask 022`（与 `tsc_tools` 一致），避免打包机 umask 收紧（如 `0077`）静默削掉未显式 chmod 的文件权限。
 
-### 4.8 ansible base.yml 必须单独以 `%config(noreplace)` 声明
+### 4.8 ansible base.yml 以普通文件入包, %post 幂等重打补丁
 
-`patch_ansible.py` 在 `%post` 里改写 ansible 的 `ansible/config/base.yml`（`INTERPRETER_PYTHON_FALLBACK`），这是随现场运行生效的配置文件。因此它**不能**混在批量目录拷贝里随包做普通文件：
+`patch_ansible.py` 在 `%post` 里改写 ansible 的 `ansible/config/base.yml`（`INTERPRETER_PYTHON_FALLBACK`）。base.yml **随批量安装树以普通文件入包**——0.13.5 之前曾以 `%config(noreplace)` 单独声明（构建侧移出安装树暂存、`nfpm.yaml` 单列条目、`stage_ansible_base` + 哨兵区间摘除那套机制均为此服务），现已放弃，理由：
 
-- 若作为普通文件，`rpm -U` 升级时会用包内原版覆盖掉现场已 patch 的版本，丢失解释器回退配置——`%config(noreplace)` 解决的正是这一点（升级保留现场版本）；
-- 注意 `noreplace` **不免除校验**：`rpm -V tsc_python` 会把 patch 过的 `base.yml` 报为 `S.5....T. c ...`（size/digest/mtime 差异，`c` = config 文件），这是**预期行为**，不代表包损坏，不要按"被篡改"排查。
+- `noreplace` 保住的是**整份旧文件**：一旦某次升级同时抬高了 ansible-core 版本，现场保留的旧 base.yml 缺少新版新增的配置定义，而 ansible 代码访问未知配置项会直接抛 `AnsibleUndefinedConfigEntry`——新版原版被落成 `base.yml.rpmnew`，`%post` 补丁又不合并它，需要管理员手工发现并恢复；
+- 普通文件形态下，升级由 rpm 直接覆盖为新版原版，`%post` 再幂等重打解释器补丁，上述窗口不存在；
+- 代价是现场手改的 base.yml 会在升级时被覆盖——base.yml 本就不是现场定制点（`ansible.cfg` 才是），该代价可接受；顺带 `rpm -V` 不再对 base.yml 报 config 差异。
 
-nfpm 的 `type: config|noreplace` 只能打在**独立 content 条目**上，无法标在目录整体拷贝里的单文件。所以 `files/pack.sh` 的 `stage_ansible_base` 在组装期把 `base.yml` 从安装树移出、单独暂存为 `output/staged/ansible_base.yml`，`build.sh` 再把它并入 stage 并以 `type: config|noreplace` 单独声明；`build.sh` 还会在 stage 拷贝后兜底删一次批量树里的 `base.yml`，避免与独立条目撞同一 `dst` 触发 nfpm `content collision`。
-
-暂存缺失时 `build.sh` 会把这一段从 `nfpm.yaml` 里摘掉（否则 nfpm 因 `src` 不存在而失败）。摘除区间由模板里的**哨兵注释** `# >>> BEGIN ansible_base_noreplace` / `# <<< END ansible_base_noreplace` 界定——**不要改写哨兵本身**（区间内的正文注释可随意改）。此前区间锚在中文注释文案与 `type: config|noreplace` 两行上：改注释即失效，结束行被改时更会一路删到文件尾，把 `scripts:` 段一起删掉而 nfpm 不报错。摘除后 `build.sh` 另有断言（`ansible_base.yml` 必须已从配置里消失），摘不掉即中止打包。
-
-> 注意：nfpm 2.47.0 用的是 `type: config|noreplace`，**没有** `config_noreplace` 这个布尔字段（后者会让 nfpm 解析失败）。改动 `nfpm.yaml.tmpl` 时务必用前者。
+若将来确需再引入 `%config` 类条目：nfpm 2.47.0 用的是 `type: config|noreplace`，**没有** `config_noreplace` 这个布尔字段（后者会让 nfpm 解析失败），且只能打在**独立 content 条目**上，无法标在目录整体拷贝里的单文件。
 
 ### 4.9 新增随包 shell 脚本
 
@@ -175,6 +177,9 @@ nfpm 的 `type: config|noreplace` 只能打在**独立 content 条目**上，无
 ## 5. 本地验证手段
 
 ```bash
+# 静态检查 (CI 同款: shellcheck + bash -n, 含 scriptlet 模板渲染产物; 无 shellcheck 时该项降级跳过)
+bash ci/lint.sh
+
 # 语法
 bash -n build.sh files/pack.sh
 

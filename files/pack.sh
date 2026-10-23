@@ -184,6 +184,12 @@ prepare_payload() {
     mkdir -p "${PAYLOAD_DIR}"/home/tsc/tsc_python/modules
     \cp -r "${WORK_DIR}"/modules/* "${PAYLOAD_DIR}"/home/tsc/tsc_python/modules/
 
+    # jq 静态二进制随包分发: yq 的硬依赖, 目标机未必自带 (EL7 无 jq 且 EPEL 已不可用)。
+    # 放 envs/tsc_python/bin——激活后即在 PATH 上、与 yq 同目录; 不放 mamba root 的
+    # bin/: micromamba activate 只把 root 的 condabin 挂上 PATH, root bin 并不在其中,
+    # 放那里 yq 找不到。二进制为纯静态链接, 不引入额外 glibc 要求
+    \cp /usr/local/bin/jq "${PAYLOAD_DIR}/home/tsc/tsc_python/envs/tsc_python/bin/jq"
+
     # 可执行位: 模块入口与冒烟测试 (防打包/拷贝过程丢失)
     # 同时把环境内二进制归一化到 0755: 构建容器 umask 002 会让它们带上组写位 (0775),
     # 共享目录 /home/tsc 下 root 所有的二进制保持 0755 更干净, 也让产物自检不依赖构建机 umask
@@ -196,31 +202,6 @@ prepare_payload() {
     chmod 0755 "${PAYLOAD_DIR}/home/tsc/tsc_python/smoke_test.sh"
 
     LOGINFO "Payload: ${PAYLOAD_DIR} ($(find "${PAYLOAD_DIR}" -type f | wc -l) files)"
-}
-
-##################################################
-# 把 ansible 的 base.yml 移出安装树, 单独暂存
-#
-# patch_ansible.py (%post) 会改写该文件注入解释器回退列表; 若它随普通文件进包,
-# 升级时会被包内原版覆盖, 丢失现场修补 (rpm -V 也会持续报差异, 虽属预期但扰民)。
-# 改为在构建侧移出批量拷贝的安装树, 由 build.sh 以 %config(noreplace) 单独声明,
-# 升级即保留现场已改写版本。
-##################################################
-stage_ansible_base() {
-    local base_yml
-    base_yml="$(find "${PAYLOAD_DIR}" -path '*/ansible/config/base.yml' -print -quit 2>/dev/null)"
-    if [[ -z "${base_yml}" ]]; then
-        LOGWARNING "stage_ansible_base: 未找到 ansible base.yml, 跳过"
-        return 0
-    fi
-    mkdir -p "${OUTPUT_DIR}/staged"
-    \cp -f "${base_yml}" "${OUTPUT_DIR}/staged/ansible_base.yml"
-    \rm -f "${base_yml}"
-    if [[ -e "${base_yml}" ]]; then
-        LOGERROR "stage_ansible_base: 未能从安装树删除 ${base_yml}"
-        exit 1
-    fi
-    LOGINFO "stage_ansible_base: ${base_yml} -> ${OUTPUT_DIR}/staged/ansible_base.yml"
 }
 
 ##################################################
@@ -269,7 +250,6 @@ mkdir -p "${OUTPUT_DIR}"
 check_glibc_baseline
 check_pip_conda_overlap
 prepare_payload
-stage_ansible_base
 write_build_info
 
 LOGSUCCESS "Payload ready: ${PAYLOAD_DIR}"
