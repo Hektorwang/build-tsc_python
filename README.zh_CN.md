@@ -29,7 +29,7 @@ rpm -e tsc_python
 ```
 
 `%pre` 在写入任何文件**之前**校验 `root` 权限、CPU 架构(必须与本包架构一致,
-见 `.supported_env.conf`)与 glibc 基线 (2.17); 不通过则中止安装, 不留下半成品文件.
+白名单见 `packaging/rpm/supported_env.conf`)与 glibc 基线 (2.17); 不通过则中止安装, 不留下半成品文件.
 
 `%post` 负责 rpm 本身做不到的收尾: 补模块 `run.sh` 可执行位、创建 `/var/log/tsc`
 (ansible 日志目录)、部署 profile（先补建公共入口，再放本包 drop-in）、调用 `tsc_tools`
@@ -86,8 +86,8 @@ source /home/tsc/tsc_profile.d/01-tsc_python-profile.sh # 只加载本包环境
 │   ├── preremove.sh        # %preun (按文件名无条件回收 drop-in, 仅 POSIX 语法, 恒返回 0)
 │   ├── postremove.sh       # %postun (清理空目录壳)
 │   ├── env_check.sh        # 环境检测与准入校验 (内联进 %pre)
-│   └── lib_min.sh          # scriptlet 用的最小 LOG* 运行时
-├── .supported_env.conf     # 受支持架构白名单 / glibc 基线
+│   ├── lib_min.sh          # scriptlet 用的最小 LOG* 运行时
+│   └── supported_env.conf  # 支持条件单一事实源 (架构白名单 / glibc 基线, 内联进 %pre)
 ├── release-note.md         # 版本发布记录 (随包分发)
 ├── THIRD_PARTY_NOTICES.md  # 第三方组件声明 (英文)
 ├── THIRD_PARTY_NOTICES.zh_CN.md
@@ -283,20 +283,19 @@ uv pip compile files/requirements.in -o files/requirements.txt --no-header --no-
 - `--no-header` / `--no-annotate` 保持输出干净: 不带自动生成头, 不带 `# via` 追踪注释
 - 锁文件必须**不含镜像地址**: 不要给 pip-compile 传 `--index-url`/`--extra-index-url`——镜像在构建期经 `build.conf` 的 `pypi_index`（或 `--pypi-index`）注入; 若输出出现 `--index-url` 行, 删掉即可
 
-## 系统适配
+## 运行要求
 
-| 操作系统                     | 适配情况                                     |
-| ---------------------------- | -------------------------------------------- |
-| centos-7 / rhel-7            | 支持                                         |
-| openEuler / Euler / HCE      | 支持                                         |
-| FitStarrySkyOS / FitServerOS | 支持                                         |
-| KylinOS V10                  | 支持                                         |
-| centos-6 / rhel-6            | 不支持 (glibc < 2.17)                        |
-| UOS                          | 不支持                                       |
-| 其他 glibc >= 2.17 的 Linux  | 理论兼容, 未测试不承诺 (如 Debian/Arch/SUSE) |
-| Alpine (musl) / FreeBSD      | 不支持 (无 glibc)                            |
+准入条件只有两条, **发行版不设门禁**——安装时 `%pre` 在写入任何文件前强制校验,
+不满足即中止且不留半成品:
 
-以上支持项按架构选用同一个 RPM 包 (`x86_64` / `aarch64`); `%pre` 会在写入任何文件前校验目标机架构与 glibc 基线.
+1. 本机架构与包架构一致: `x86_64` / `aarch64` (白名单见 `packaging/rpm/supported_env.conf`);
+2. glibc >= 2.17 (CentOS 7.9 构建基线; musl 系如 Alpine 无 glibc, 不适用).
+
+凡满足上述两条的 Linux 均可安装。以下环境完成过验证 (**参考信息, 非准入条件**):
+CentOS 7.9 / RHEL 7、openEuler / Euler / HCE、KylinOS V10 (ky10)、
+FitStarrySkyOS / FitServerOS。不在此列的发行版属"未验证", 不是"不支持"。
+
+按架构选用同一个 RPM 包 (`x86_64` / `aarch64`), 两个架构的包仅二进制不同.
 
 ## 内网部署说明
 

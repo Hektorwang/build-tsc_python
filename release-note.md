@@ -1,5 +1,13 @@
 # tsc_python
 
+## Version=0.13.7
+
+Date=20261024
+
+1. docs: 三份 README 的"系统适配"矩阵 (中英主 README 与随包 readme) 替换为"运行要求"——准入条件只有架构一致与 glibc>=2.17 两条, 与 %pre 实际门禁一一对应, **发行版不设门禁**; 原矩阵中机器强制的只有 centos-6 (glibc<2.17 的推论) 与 Alpine (无 glibc) 两行, 其余是"在哪些环境测过"的测试记录却被当成准入条件维护, 且已漂移 (ky10/KylinOS V10 命名不一、UOS 无原因"不支持"与兜底行"其他 glibc>=2.17 理论兼容"自相矛盾)。已验证清单降级为一句非规范性脚注 (CentOS 7.9 / RHEL 7、openEuler / Euler / HCE、KylinOS V10 (ky10)、FitStarrySkyOS / FitServerOS), 不在列属"未验证"而非"不支持", UOS 相应归入未验证
+2. refactor(build): `.supported_env.conf` 移至 `packaging/rpm/supported_env.conf`——该文件实际是 %pre 的注入源 (与 lib_min.sh / env_check.sh 同类), 移动后 packaging/rpm/ 聚齐全部 scriptlet 注入源, 根目录不再有点文件; 文件内容即支持条件的全部定义, 名实相符; preinstall.sh.tmpl 的 INJECT 路径与相关注释同步
+3. feat(build): 架构 → 第三方组件下载标识收敛为单一 `arch_download_tags()` (原先 micromamba 与 jq 各写一个 case, 可漂移), 并新增支持白名单一致性断言: 本机架构必须在白名单内、白名单每一项都必须有下载映射与 `jq_sha256_<arch>` 常量——白名单加了架构而映射/sha 漏改时, 会打出 %pre 拒装自己目标架构的包, 现在构建期即拦下; conf 头注释附新增架构 checklist
+
 ## Version=0.13.6
 
 Date=20261024

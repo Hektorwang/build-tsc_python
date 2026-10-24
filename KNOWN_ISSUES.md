@@ -19,6 +19,10 @@ release/ 旧产物按 mtime 保留最近 5 份 (打包失败不再连带删除)�
 部署改 `install -d/-m` 固定 mode、新增 CI lint (`ci/lint.sh` + GitHub Actions)。
 0.13.6: `package_rpm` 成功路径显式回收 stage 并复位 RETURN trap、模块 run.sh 补
 nounset/pipefail、构建入口加 flock 互斥。
+0.13.7: 支持口径收敛为"架构 + glibc 两条, 发行版不设门禁"——三份 README 的系统适配
+矩阵替换为运行要求 + 非规范性已验证脚注 (消除 ky10/KylinOS 命名漂移与 UOS 行自相
+矛盾); `.supported_env.conf` 移至 packaging/rpm/ 聚齐 scriptlet 注入源; build.sh 架构
+下载标识收敛单映射并加白名单一致性断言。
 
 ---
 

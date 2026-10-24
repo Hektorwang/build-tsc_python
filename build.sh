@@ -194,20 +194,60 @@ py_mm="$(grep -oE 'python=[0-9]+\.[0-9]+' "${env_yml_tmp}" | sed -n '1p' | sed '
 py_mm="${py_mm:-3.13}"
 
 # ─────────────────────────────────────────────
+# 架构映射与支持白名单一致性断言
+# packaging/rpm/supported_env.conf 是支持条件的唯一事实源 (架构白名单 + glibc 基线),
+# %pre 注入的是同一份。这里把架构 → 第三方组件下载标识收敛为单一映射 (原先
+# micromamba 与 jq 各写一个 case, 可漂移), 并断言:
+#   1. 本机架构在白名单内;
+#   2. 白名单每一项都有下载映射与 jq sha256——白名单加了架构而映射/sha 漏改时,
+#      会打出 %pre 拒装自己目标架构的包, 在此提前拦下 (checklist 见 conf 头注释)
+# ─────────────────────────────────────────────
+arch_download_tags() {
+    # 输出 "<micromamba-tag> <jq-arch>", 未知架构返回 1
+    case "$1" in
+        x86_64)  echo "linux-64 amd64" ;;
+        aarch64) echo "linux-aarch64 arm64" ;;
+        *)       return 1 ;;
+    esac
+}
+
+jq_version="1.8.1"
+jq_sha256_x86_64="020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a0d"
+jq_sha256_aarch64="6bc62f25981328edd3cfcfe6fe51b073f2d7e7710d7ef7fcdac28d4e384fc3d4"
+
+supported_env_conf="${PACKAGING_DIR}/supported_env.conf"
+supported_archs="$(sed -n 's/^SUPPORTED_ARCHITECTURES=//p' "${supported_env_conf}" | tr -d '"[:space:]')"
+if [[ -z "${supported_archs}" ]]; then
+    LOGERROR "未能从 ${supported_env_conf} 解析出 SUPPORTED_ARCHITECTURES"
+    exit 1
+fi
+IFS=',' read -r -a whitelist_archs <<<"${supported_archs}"
+for whitelist_arch in "${whitelist_archs[@]}"; do
+    arch_download_tags "${whitelist_arch}" &>/dev/null || {
+        LOGERROR "白名单架构 '${whitelist_arch}' 在 arch_download_tags() 缺少映射"
+        LOGERROR "请补 case, 否则会打出 %pre 拒装自己目标架构的包 (checklist 见 conf 头注释)"
+        exit 1
+    }
+    sha_var="jq_sha256_${whitelist_arch}"
+    [[ -n "${!sha_var:-}" ]] || {
+        LOGERROR "白名单架构 '${whitelist_arch}' 缺少 ${sha_var} 常量"
+        exit 1
+    }
+done
+is_element_in_array "${ARCH}" "${whitelist_archs[@]}" || {
+    LOGERROR "本机架构 ${ARCH} 不在支持白名单 (${supported_archs})"
+    exit 1
+}
+ARCH_TAGS="$(arch_download_tags "${ARCH}")"
+micromamba_url_tag="${ARCH_TAGS%% *}"
+jq_arch_tag="${ARCH_TAGS##* }"
+
+# ─────────────────────────────────────────────
 # 预下载 micromamba 到 files/tmp/micromamba
 # 若已存在且版本匹配则跳过，否则重新下载
 # ─────────────────────────────────────────────
 micromamba_cache="${TMP_DIR}/micromamba"
 micromamba_cache_ver="${TMP_DIR}/micromamba.version"
-
-case "${ARCH}" in
-    x86_64)  micromamba_url_tag="linux-64" ;;
-    aarch64) micromamba_url_tag="linux-aarch64" ;;
-    *)
-        LOGERROR "Unsupported architecture: ${ARCH}"
-        exit 1
-        ;;
-esac
 
 _need_download=true
 if [[ -f "${micromamba_cache}" && -f "${micromamba_cache_ver}" ]]; then
@@ -231,23 +271,16 @@ fi
 
 # ─────────────────────────────────────────────
 # 第三方组件: 缓存优先, 缺失时按需下载 (与 micromamba 缓存同一模式)
+# jq 版本/sha256 常量与架构映射见上方"架构映射与支持白名单一致性断言"一节
 # ─────────────────────────────────────────────
-jq_version="1.8.1"
-jq_sha256_x86_64="020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a0d"
-jq_sha256_aarch64="6bc62f25981328edd3cfcfe6fe51b073f2d7e7710d7ef7fcdac28d4e384fc3d4"
-
 ensure_jq() {
-    local url file sum expected
+    local url file sum expected sha_var
     # 只取当前架构: aarch64 的 jq 只在 ARM 机器构建时才用得上,
     # 强制双架构齐备会让 x86_64 构建机因 aarch64 下载失败而中断
     file="${TMP_DIR}/jq-${ARCH}"
-    case "${ARCH}" in
-        x86_64)  url="https://github.com/jqlang/jq/releases/download/jq-${jq_version}/jq-linux-amd64" ;;
-        aarch64) url="https://github.com/jqlang/jq/releases/download/jq-${jq_version}/jq-linux-arm64" ;;
-        *)       LOGERROR "Unsupported architecture: ${ARCH}"; return 1 ;;
-    esac
-    expected="${jq_sha256_x86_64}"
-    [[ "${ARCH}" == "aarch64" ]] && expected="${jq_sha256_aarch64}"
+    url="https://github.com/jqlang/jq/releases/download/jq-${jq_version}/jq-linux-${jq_arch_tag}"
+    sha_var="jq_sha256_${ARCH}"
+    expected="${!sha_var}"
     if [[ -f "${file}" ]]; then
         sum="$(sha256sum "${file}" | awk '{print $1}')"
         if [[ "${sum}" == "${expected}" ]]; then

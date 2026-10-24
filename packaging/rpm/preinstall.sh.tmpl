@@ -4,9 +4,9 @@
 #
 # 执行时机: 包文件解压落盘之前, 因此脚本必须自包含。
 # build.sh 会把 `# >>> INJECT <file>` 标记替换为下列文件的实际内容:
-#   packaging/rpm/lib_min.sh   最小日志库
-#   .supported_env.conf        受支持环境清单 (架构白名单 / glibc 基线)
-#   packaging/rpm/env_check.sh 检测与准入逻辑
+#   packaging/rpm/lib_min.sh        最小日志库
+#   packaging/rpm/supported_env.conf 支持条件 (架构白名单 / glibc 基线)
+#   packaging/rpm/env_check.sh      检测与准入逻辑
 # build.sh 同时会把 @ARCH@ 替换为本包的构建架构。
 #
 # %pre 返回非零时 rpm 会中止安装, 环境不符的机器不会留下半成品文件。
@@ -40,7 +40,7 @@ __LOG_TAG="tsc_python-pre"
 readonly PACKAGE_ARCH="@ARCH@"
 
 # >>> INJECT packaging/rpm/lib_min.sh
-# >>> INJECT .supported_env.conf
+# >>> INJECT packaging/rpm/supported_env.conf
 # >>> INJECT packaging/rpm/env_check.sh
 
 ##################################################

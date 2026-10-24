@@ -73,17 +73,15 @@ source /home/tsc/tsc_profile
 python <path_to_your_python_script>
 ```
 
-## 系统适配
+## 运行要求
 
-| 操作系统                     | 适配情况                                     |
-| ---------------------------- | -------------------------------------------- |
-| centos-7/rhel-7              | 支持                                         |
-| openEuler/Euler/HCE          | 支持                                         |
-| FitStarrySkyOS/FitServerOS   | 支持                                         |
-| ky10                         | 支持                                         |
-| centos-6/rhel-6              | 不支持 (glibc < 2.17)                        |
-| uos                          | 不支持                                       |
-| 其他 glibc >= 2.17 的 Linux  | 理论兼容, 未测试不承诺                       |
-| Alpine (musl)/FreeBSD        | 不支持 (无 glibc)                            |
+准入条件只有两条, **发行版不设门禁** (安装时 `%pre` 强制校验):
 
-以上支持项按架构选用同一个 RPM 包.
+1. 本机架构与包架构一致: `x86_64` / `aarch64`;
+2. glibc >= 2.17 (musl 系如 Alpine 无 glibc, 不适用).
+
+凡满足上述两条的 Linux 均可安装。已验证环境 (**参考信息, 非准入条件**): CentOS 7.9 / RHEL 7、
+openEuler / Euler / HCE、KylinOS V10 (ky10)、FitStarrySkyOS / FitServerOS。
+不在此列属"未验证", 不是"不支持".
+
+按架构选用同一个 RPM 包 (`x86_64` / `aarch64`), 两个架构的包仅二进制不同.

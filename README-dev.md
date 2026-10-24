@@ -23,7 +23,7 @@ packaging/rpm/
   postremove.sh                     %postun (清理本包空目录壳, 升级跳过)
   env_check.sh                      环境检测与准入校验 (内联进 %pre)
   lib_min.sh                        最小 LOG* 运行时 (内联进 %pre / %post)
-.supported_env.conf                 支持矩阵 (架构白名单 + glibc 基线)
+  supported_env.conf                支持条件单一事实源 (架构白名单 + glibc 基线, 内联进 %pre)
 release-note.md                     版本号来源 (文件内第一个 `Version=`)
 files/
   pack.sh                           容器内打包脚本 (安装树 + jq 随包 + build-info.json)
@@ -77,7 +77,7 @@ KNOWN_ISSUES.md                     审查发现的暂缓事项清单 (不随包
 
 六个必须理解的设计：
 
-1. **`%pre` 必须自包含**。此刻包内文件尚未落盘，不能 `source` 包内任何文件，所以 `lib_min.sh` / `.supported_env.conf` / `env_check.sh` 是**内联**进 `%pre` 的文本，而不是从磁盘读取。
+1. **`%pre` 必须自包含**。此刻包内文件尚未落盘，不能 `source` 包内任何文件，所以 `lib_min.sh` / `supported_env.conf` / `env_check.sh` 是**内联**进 `%pre` 的文本，而不是从磁盘读取。
 2. **`lib_min.sh` 是 `func` 的 shim**。它只提供 5 个 `LOG*`、`is_element_in_array` 与 `version_ge`，与 `func` 里的同名函数**同名同签名**；日志前缀由调用方设置的 `__LOG_TAG` 决定。改任一侧的签名或行为，必须同步另一侧。
 3. **`%preun` 在升级时全部跳过**。回收工作交给新包的 `%post` 重建，避免出现"升级过程中工具被删空"的窗口。
 4. **`%preun` 只用 POSIX 语法，且任何分支都 `exit 0`**。`%preun` 返回非零会让 rpm 拒绝卸载，让机器卡在"卸不掉"的状态比留下几个文件更糟。这也是它不注入 bash 版 `lib_min.sh` 的原因。
@@ -120,7 +120,9 @@ KNOWN_ISSUES.md                     审查发现的暂缓事项清单 (不随包
 
 ### 4.2 架构
 
-包与架构一一对应：x86_64 机器出 `x86_64` 包，aarch64 机器出 `aarch64` 包。新增架构需同步 `.supported_env.conf` 的 `SUPPORTED_ARCHITECTURES`，并确认 `build.sh` 的 `ARCH="$(arch)"` 能取到该值。
+包与架构一一对应：x86_64 机器出 `x86_64` 包，aarch64 机器出 `aarch64` 包。新增架构按 `packaging/rpm/supported_env.conf` 头注释的 checklist：补 `build.sh` 的 `arch_download_tags()` 映射与 `jq_sha256_<arch>` 常量、白名单加一项——构建期断言会拦下前两步的遗漏；并确认 `build.sh` 的 `ARCH="$(arch)"` 能取到该值。
+
+支持口径：**准入条件只有架构与 glibc 两条, 发行版不设门禁**（`env_check.sh` 头注释记录了这一决策的理由——国产 OS 的 `os-release` 名称五花八门, 按发行版家族判断极脆弱）。README 中的"已验证环境"清单是测试记录, 非准入条件, 不构成第二事实源。
 
 `%pre` 是唯一的架构闸门：它既校验本机架构在白名单内，也校验其与所装包的构建架构一致（`--ignorearch` 强行安装时仍会拦下）。
 

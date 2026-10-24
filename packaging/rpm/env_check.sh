@@ -9,7 +9,7 @@
 #
 # 前置条件 (调用方保证):
 #   - 已提供 LOG*/is_element_in_array/version_ge (lib_min.sh)
-#   - 已 source .supported_env.conf (SUPPORTED_ARCHITECTURES / GLIBC_BASELINE)
+#   - 已 source packaging/rpm/supported_env.conf (SUPPORTED_ARCHITECTURES / GLIBC_BASELINE)
 #   - 已设置 PACKAGE_ARCH (本包的构建架构, 由 build.sh 渲染)
 #   - 已声明 declare -A system_info
 ##################################################
@@ -47,7 +47,7 @@ detect_system_info() {
 # 校验本机环境是否满足安装要求
 # 全局变量:
 #   system_info (关联数组, 由本函数填充)
-#   SUPPORTED_ARCHITECTURES / GLIBC_BASELINE (来自 .supported_env.conf)
+#   SUPPORTED_ARCHITECTURES / GLIBC_BASELINE (来自 packaging/rpm/supported_env.conf)
 #   PACKAGE_ARCH (本包构建架构)
 # 返回:
 #   0   - 校验通过
