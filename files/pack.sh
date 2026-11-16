@@ -230,9 +230,10 @@ EOF
 BUILD_DATE="$(date +%Y%m%d)"
 BUILD_TIMESTAMP="$(date +%s)"
 
-# 与宿主机 build.sh 的 RPM NVR 解析同一写法: 取 release-note.md 第一个 Version= 行并去空白。
-# 两处必须一致——build.sh 打包期会拿本文件产出的 build-info.json 版本与 RPM 版本比对
-version="$(awk '/Version=/{sub(/^[^=]*=/, ""); print; exit}' "${WORK_DIR}"/release-note.md | tr -d '[:space:]')"
+# 与宿主机 build.sh 的 RPM NVR 解析同一写法 (含同一锚定): 取 release-note.md 第一个
+# "## Version=" 标题行并去空白。两处必须一致——build.sh 打包期会拿本文件产出的
+# build-info.json 版本与 RPM 版本比对
+version="$(awk '/^#+[[:space:]]*Version=/{sub(/^[^=]*=/, ""); print; exit}' "${WORK_DIR}"/release-note.md | tr -d '[:space:]')"
 
 system_info="$(detect_system_info)"
 build_arch="$(echo "${system_info}" | jq -r .machine_architecture)"

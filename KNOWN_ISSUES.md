@@ -23,6 +23,12 @@ nounset/pipefail、构建入口加 flock 互斥。
 矩阵替换为运行要求 + 非规范性已验证脚注 (消除 ky10/KylinOS 命名漂移与 UOS 行自相
 矛盾); `.supported_env.conf` 移至 packaging/rpm/ 聚齐 scriptlet 注入源; build.sh 架构
 下载标识收敛单映射并加白名单一致性断言。
+2026-10-26 第三轮审查处理: `ansible/hosts` 拆出目录树以 `%config(noreplace)` 单独入包
+并收紧 0600 (升级不再覆盖现场 inventory/凭据, 见 README-dev §4.11)、`%pre` glibc 门禁
+fail-close 并去掉对 gawk 的隐式依赖、`%post` 日志目录对预存在目录补 chmod 0750、
+changehostname 模块 README 命令拼写 (changenhostame.yml → changehostname.yml)、构建
+日志前置到下载阶段、micromamba 下载与缓存命中补 sha256 校验 (与 jq 同口径)、
+release-note 版本解析锚定标题行、Dockerfile 改 `bash pack.sh`。
 
 ---
 
@@ -72,7 +78,8 @@ errexit/nounset/pipefail 三件套)。
 
 ## 4. 已决策接受 (2026-10-24, 不再处理)
 
-- micromamba 下载无 sha256 校验 (与 jq 不同, 仅 TLS 保护) —— 决策: 忽略;
 - conda 层依赖不锁定 (仅 python 钉版, 其余随 conda-forge 漂移; conda-forge glibc 基线
   迁移时由 `check_glibc_baseline` fail-close 拦下, 不会流出超标产物) —— 决策: 忽略;
 - `ansible.cfg` 的 `host_key_checking=False` —— 团队实施设计, 接受。
+
+(原"micromamba 下载无 sha256 校验"已于 0.13.8 修复并移出本清单。)

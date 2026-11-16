@@ -18,7 +18,9 @@ rpm -ivh tsc_python-<version>-<release>.<arch>.rpm
 rpm -Uvh tsc_python-<version>-<release>.<arch>.rpm
 ```
 
-安装前 `%pre` 会校验 `root` 权限、CPU 架构(须与本包架构一致)与 glibc (>= 2.17), 不通过则中止安装且不写入任何文件.
+安装前 `%pre` 会校验 `root` 权限、CPU 架构(须与本包架构一致)与 glibc (>= 2.17), glibc 无法识别时同样拒装, 不通过则中止安装且不写入任何文件.
+
+升级 (`rpm -Uvh`) 时现场维护的 `/home/tsc/tsc_python/ansible/hosts` (inventory, 模块工作流要求现场把受管主机与凭据写进去) **不会被覆盖**: 该文件以 `%config(noreplace)` 入包, 升级保留现场版本, 新版模板落成 `hosts.rpmnew`; 该文件按 0600 落盘 (使用模式含明文凭据, 不放行同机其他账号读).
 
 > 本包以 **root 运行**为前提: 包内容、profile 与 `/var/log/tsc` 均为 root 属主且仅 root 可用, 本包不创建独立运行用户. 另随包分发 jq 静态二进制于 `envs/tsc_python/bin/jq` (yq 的硬依赖, 激活环境后即可用).
 
@@ -31,7 +33,8 @@ rpm -e tsc_python
 包内文件由 rpm 删除, 安装时部署的 profile drop-in (`/home/tsc/tsc_profile.d/01-tsc_python-profile.sh`)
 由 `%preun` 无条件回收 (该文件名归属本包独占, 不保留本地修改; 现场自定义片段请另建文件),
 空目录壳由 `%postun` 清理; `/home/tsc/tsc_profile` 公共入口、`tsc_profile.d`
-目录本身与 `/var/log/tsc` 及运行期日志保留.
+目录本身与 `/var/log/tsc` 及运行期日志保留. 现场改过的 `ansible/hosts` 也不会被销毁——
+rpm 卸载时将其转存为 `hosts.rpmsave` (`ansible/` 目录壳因此留下, 数据不再需要后可手工清理).
 
 ## 环境加载
 
@@ -78,7 +81,7 @@ python <path_to_your_python_script>
 准入条件只有两条, **发行版不设门禁** (安装时 `%pre` 强制校验):
 
 1. 本机架构与包架构一致: `x86_64` / `aarch64`;
-2. glibc >= 2.17 (musl 系如 Alpine 无 glibc, 不适用).
+2. glibc >= 2.17 (musl 系如 Alpine 无 glibc, 不适用; glibc 无法识别时同样拒装).
 
 凡满足上述两条的 Linux 均可安装。已验证环境 (**参考信息, 非准入条件**): CentOS 7.9 / RHEL 7、
 openEuler / Euler / HCE、KylinOS V10 (ky10)、FitStarrySkyOS / FitServerOS。

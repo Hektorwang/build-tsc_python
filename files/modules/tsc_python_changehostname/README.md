@@ -29,5 +29,5 @@ usage: tsc --tsc_python_changehostname
 
 ```bash
 # 执行批量修改
-ansible-playbook -i /home/tsc/tsc_python/ansible/hosts /home/tsc/tsc_python/ansible/roles/changenhostame.yml
+ansible-playbook -i /home/tsc/tsc_python/ansible/hosts /home/tsc/tsc_python/ansible/roles/changehostname.yml
 ```

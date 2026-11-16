@@ -28,6 +28,12 @@ DOCKERFILE="Dockerfile"
 # 函数库唯一副本在 files/func (容器内由 Dockerfile COPY 到工作目录, pack.sh 源同一份)
 source "${WORK_DIR}/files/func"
 
+# 输出/日志目录先行创建, 日志文件尽早开启: 参数摘要与 micromamba/jq 下载 (最易出
+# 网络故障的阶段) 也要落盘, 不只记录容器构建之后的段落 (0.13.8 前 log_file 在
+# build_target 内才赋值, 之前的 LOG* 全部落入 /dev/null)
+mkdir -p "${OUTPUT_DIR}" "${LOG_DIR}" "${TMP_DIR}"
+log_file="${LOG_DIR}/build-${ARCH}-${D14}.log"
+
 # 同机互斥: 并发 build.sh 会互踩 stage/ 与 release/ 的清理 (清空 output/<arch>、
 # 回收旧产物), 第二个实例直接退出。锁文件零字节, 已入 .gitignore;
 # flock 属 util-linux, 缺失时显式报错而不是静默失去互斥
@@ -144,8 +150,6 @@ if ! docker info &>/dev/null; then
     exit 1
 fi
 
-mkdir -p "${OUTPUT_DIR}" "${LOG_DIR}" "${TMP_DIR}"
-
 # ─────────────────────────────────────────────
 # 生成构建期配置: environment.yml / condarc / pip.conf
 # 每次从原始文件与参数重新生成, 支持源地址自定义
@@ -215,6 +219,13 @@ jq_version="1.8.1"
 jq_sha256_x86_64="020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a0d"
 jq_sha256_aarch64="6bc62f25981328edd3cfcfe6fe51b073f2d7e7710d7ef7fcdac28d4e384fc3d4"
 
+# micromamba 的 sha256 按版本×架构钉死 (0.13.8 起与 jq 同口径, 收回 0.13.7 "仅 TLS 保护"
+# 的已决策接受项): 从 https://micro.mamba.pm/api/micromamba/<tag>/<version> 下载后
+# sha256sum 记录于此。升级 micromamba 版本时必须同步更新两个常量——校验不符构建即中止,
+# 报错信息里会指向这里
+micromamba_sha256_x86_64="8761c382127e6363bd9e0a2451aa3ef90d071a79133f736e2f759a3bf13040dd"
+micromamba_sha256_aarch64="e705ffeed90ce0659eb546e4b1e1028c9eaf0bc9cc854867b19ac5ce0ba5852f"
+
 supported_env_conf="${PACKAGING_DIR}/supported_env.conf"
 supported_archs="$(sed -n 's/^SUPPORTED_ARCHITECTURES=//p' "${supported_env_conf}" | tr -d '"[:space:]')"
 if [[ -z "${supported_archs}" ]]; then
@@ -233,6 +244,11 @@ for whitelist_arch in "${whitelist_archs[@]}"; do
         LOGERROR "白名单架构 '${whitelist_arch}' 缺少 ${sha_var} 常量"
         exit 1
     }
+    sha_var="micromamba_sha256_${whitelist_arch}"
+    [[ -n "${!sha_var:-}" ]] || {
+        LOGERROR "白名单架构 '${whitelist_arch}' 缺少 ${sha_var} 常量"
+        exit 1
+    }
 done
 is_element_in_array "${ARCH}" "${whitelist_archs[@]}" || {
     LOGERROR "本机架构 ${ARCH} 不在支持白名单 (${supported_archs})"
@@ -243,31 +259,47 @@ micromamba_url_tag="${ARCH_TAGS%% *}"
 jq_arch_tag="${ARCH_TAGS##* }"
 
 # ─────────────────────────────────────────────
-# 预下载 micromamba 到 files/tmp/micromamba
-# 若已存在且版本匹配则跳过，否则重新下载
+# 第三方组件: 缓存优先, 缺失/校验和不符时重新下载 (micromamba 与 jq 同一口径)
+# 0.13.8 起 micromamba 亦钉 sha256 (收回 0.13.7 "仅 TLS 保护"的已决策接受项):
+# 下载先落 .dl 临时文件校验通过再 mv, 缓存命中亦复验校验和
 # ─────────────────────────────────────────────
 micromamba_cache="${TMP_DIR}/micromamba"
 micromamba_cache_ver="${TMP_DIR}/micromamba.version"
 
-_need_download=true
-if [[ -f "${micromamba_cache}" && -f "${micromamba_cache_ver}" ]]; then
-    cached_ver="$(cat "${micromamba_cache_ver}")"
-    if [[ "${cached_ver}" == "${micromamba_version}-${ARCH}" ]]; then
-        LOGINFO "micromamba cache hit: ${micromamba_version} (${ARCH}), skipping download"
-        _need_download=false
-    else
-        LOGINFO "micromamba version changed (${cached_ver} -> ${micromamba_version}-${ARCH}), re-downloading"
+ensure_micromamba() {
+    local sum expected sha_var
+    sha_var="micromamba_sha256_${ARCH}"
+    expected="${!sha_var}"
+    if [[ -f "${micromamba_cache}" && -f "${micromamba_cache_ver}" ]] &&
+        [[ "$(cat "${micromamba_cache_ver}")" == "${micromamba_version}-${ARCH}" ]]; then
+        sum="$(sha256sum "${micromamba_cache}" | awk '{print $1}')"
+        if [[ "${sum}" == "${expected}" ]]; then
+            LOGINFO "micromamba cache hit: ${micromamba_version} (${ARCH}), skipping download"
+            return 0
+        fi
+        LOGINFO "micromamba cache checksum mismatch (${ARCH}), re-downloading"
     fi
-fi
-
-if [[ "${_need_download}" == true ]]; then
     LOGINFO "Downloading micromamba ${micromamba_version} for ${ARCH}..."
-    curl --fail --location \
-        --output "${micromamba_cache}" \
-        "https://micro.mamba.pm/api/micromamba/${micromamba_url_tag}/${micromamba_version}"
+    # 先落临时文件再校验 (同 ensure_jq): 直接 --output 到目标路径的话, 下载到损坏/
+    # 被篡改的二进制会被原样用进容器
+    if ! curl --fail --location --output "${micromamba_cache}.dl" \
+        "https://micro.mamba.pm/api/micromamba/${micromamba_url_tag}/${micromamba_version}"; then
+        LOGERROR "micromamba 下载失败 (${ARCH})"
+        return 1
+    fi
+    sum="$(sha256sum "${micromamba_cache}.dl" | awk '{print $1}')"
+    if [[ "${sum}" != "${expected}" ]]; then
+        LOGERROR "micromamba 下载完整性校验失败 (${ARCH}): 期望 ${expected}, 实际 ${sum}"
+        LOGERROR "若为正常升级 micromamba 版本, 请同步更新 build.sh 的 micromamba_sha256_<arch> 常量"
+        rm -f "${micromamba_cache}.dl"
+        return 1
+    fi
+    mv -f "${micromamba_cache}.dl" "${micromamba_cache}"
     echo "${micromamba_version}-${ARCH}" > "${micromamba_cache_ver}"
-    LOGSUCCESS "micromamba downloaded: ${micromamba_cache}"
-fi
+    LOGSUCCESS "micromamba ${micromamba_version} (${ARCH}) downloaded and verified"
+}
+
+ensure_micromamba
 
 # ─────────────────────────────────────────────
 # 第三方组件: 缓存优先, 缺失时按需下载 (与 micromamba 缓存同一模式)
@@ -315,7 +347,6 @@ ensure_jq
 # ─────────────────────────────────────────────
 build_target() {
     local output_dir image_tag
-    log_file="${LOG_DIR}/build-${ARCH}-${D14}.log"
     output_dir="${OUTPUT_DIR}/${ARCH}"
     image_tag="tsc-python-builder-${ARCH}"
 
@@ -326,6 +357,8 @@ build_target() {
     LOGINFO "Log: ${log_file}"
 
     local build_ok=0
+    # tee -a 而非 tee: log_file 已在脚本开头开启 (P3-6), tee 无 -a 会截断文件、
+    # 冲掉配置摘要与下载阶段的日志
     docker build \
         ${no_cache} \
         --pull=false \
@@ -337,7 +370,7 @@ build_target() {
         --build-arg PYPI_INDEX="${pypi_index}" \
         --file "${DOCKERFILE}" \
         "${WORK_DIR}" \
-        2>&1 | tee "${log_file}" || build_ok=1
+        2>&1 | tee -a "${log_file}" || build_ok=1
 
     if [[ ${build_ok} -ne 0 ]]; then
         LOGERROR "Docker build failed, see log: ${log_file}"
@@ -436,8 +469,10 @@ package_rpm() {
     # 精确到秒, 保证同日多次构建的 NVR 可区分 (rpm 按字符串比较版本, 时间戳递增即可正常升级)
     local version release
     # 与 tsc_tools/build.sh 同一写法: 取首个 '=' 之后的整行 (值里再出现 '=' 不会被
-    # -F '=' + $2 截断), 再去掉空白/CRLF
-    version="$(awk '/Version=/{sub(/^[^=]*=/, ""); print; exit}' "${WORK_DIR}"/release-note.md | tr -d '[:space:]')"
+    # -F '=' + $2 截断), 再去掉空白/CRLF。
+    # 锚定标题行 (^#+ 空白 Version=): release-note 的版本条目以 "## Version=x.y.z" 开头,
+    # 非锚定的 /Version=/ 取全文件第一个命中, 正文里提及 "`Version=`" 字样会被误配
+    version="$(awk '/^#+[[:space:]]*Version=/{sub(/^[^=]*=/, ""); print; exit}' "${WORK_DIR}"/release-note.md | tr -d '[:space:]')"
     release="$(date "+%Y%m%d%H%M%S")"
 
     if [[ -z "${version}" ]]; then
@@ -468,6 +503,22 @@ package_rpm() {
         LOGERROR "如确认要随包分发该目录, 请先修正其来源, 而非在此放行"
         return 1
     fi
+
+    # ---------- 3.2 ansible/hosts 拆出目录树, 以 %config(noreplace) 单独入包 ----------
+    # 该文件是三个模块工作流的现场编辑点 (受管主机/端口/root 明文密码), 以普通文件随
+    # 目录树入包时 rpm -U 会用包内模板静默覆盖现场 inventory (无备份无警告)。
+    # noreplace 语义下升级保留现场版本 (新版模板落成 hosts.rpmnew), 真卸载时现场改过的
+    # 版本转存 hosts.rpmsave 而非删除。base.yml 放弃 %config 的 schema 漂移理由
+    # (README-dev §4.8) 不适用于 hosts——它是纯数据模板, 不存在缺新配置定义的问题
+    # 同时收紧 0600: 使用模式含明文凭据, 0644 会让同机其他本地账号读到 (nfpm 对单文件
+    # 条目沿用源文件 mode, 故对 stage 副本设置)
+    local staged_hosts="${STAGE_DIR}/payload/home/tsc/tsc_python/ansible/hosts"
+    if [[ ! -f "${staged_hosts}" ]]; then
+        LOGERROR "payload 缺少 tsc_python/ansible/hosts, 容器内 pack.sh 未随包 inventory 模板"
+        return 1
+    fi
+    mv "${staged_hosts}" "${STAGE_DIR}/ansible-hosts"
+    chmod 0600 "${STAGE_DIR}/ansible-hosts"
 
     # ---------- 3.5 版本一致性断言 ----------
     # build-info.json 的 version 由容器内 pack.sh 按 release-note.md 独立解析,
@@ -609,6 +660,7 @@ package_rpm() {
             "/home/tsc/tsc_python/patch_ansible.py"
             "/home/tsc/tsc_python/build-info.json"
             "/home/tsc/tsc_python/ansible/ansible.cfg"
+            "/home/tsc/tsc_python/ansible/hosts"
             "/home/tsc/tsc_python/modules/tsc_python_changehostname/run.sh"
             "/home/tsc/tsc_python/envs/tsc_python/lib/python${py_mm}/site-packages/ansible/config/base.yml"
         )

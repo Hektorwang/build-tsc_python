@@ -31,7 +31,14 @@ rpm -e tsc_python
 
 `%pre` validates `root` privileges, the CPU architecture (must match the package architecture,
 whitelist in `packaging/rpm/supported_env.conf`) and the glibc baseline (2.17) **before** any file is written;
-on failure the installation is aborted and no half-installed tree is left behind.
+an undetectable glibc aborts the install as well; on failure the installation is aborted and no
+half-installed tree is left behind.
+
+On upgrade (`rpm -Uvh`) the field-maintained `/home/tsc/tsc_python/ansible/hosts` (the inventory
+the bundled modules ask you to edit, with target hosts and SSH credentials) is **not** overwritten:
+the file ships as `%config(noreplace)`, the local version is kept and the packaged template lands
+as `hosts.rpmnew`. The file is installed with mode `0600` — its usage pattern involves plaintext
+credentials, which must not be readable by other local accounts.
 
 `%post` then finishes what rpm cannot do: it fixes module `run.sh` executable bits, creates
 `/var/log/tsc` (ansible log directory), deploys this package's profile drop-in (creating the
@@ -76,7 +83,9 @@ source /home/tsc/tsc_profile.d/01-tsc_python-profile.sh  # this package's enviro
 On uninstall, `%preun` removes this package's drop-in unconditionally (the file name belongs
 solely to this package); `%postun` prunes the now-empty directory shells; rpm itself removes every
 packaged file. Kept on purpose: `/home/tsc/tsc_profile`, `/home/tsc/tsc_profile.d` with any custom
-fragment, `/var/log/tsc` with its runtime logs.
+fragment, `/var/log/tsc` with its runtime logs. A locally modified `ansible/hosts` is not destroyed
+either — rpm moves it to `hosts.rpmsave` on erase (the `ansible/` directory shell stays because of
+it; delete the `.rpmsave` manually once the data is no longer needed).
 
 If a pre-RPM (self-extracting) install of `tsc_python` is already present, `%pre` rotates
 `/home/tsc/tsc_tools/micromamba` to `micromamba.bak.<timestamp>` instead of mixing the two,
@@ -307,7 +316,7 @@ writing any file and aborts without leaving partial installs behind:
 1. the target machine's architecture matches the package architecture: `x86_64` / `aarch64`
    (whitelist in `packaging/rpm/supported_env.conf`);
 2. glibc >= 2.17 (the CentOS 7.9 build baseline; musl-based systems such as Alpine have no
-   glibc and are out of scope).
+   glibc and are out of scope — an undetectable glibc also aborts the install).
 
 Any Linux satisfying both criteria can install the package. The following environments have
 been qualified (**for reference, not admission criteria**): CentOS 7.9 / RHEL 7, openEuler /

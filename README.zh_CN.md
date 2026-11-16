@@ -29,7 +29,13 @@ rpm -e tsc_python
 ```
 
 `%pre` 在写入任何文件**之前**校验 `root` 权限、CPU 架构(必须与本包架构一致,
-白名单见 `packaging/rpm/supported_env.conf`)与 glibc 基线 (2.17); 不通过则中止安装, 不留下半成品文件.
+白名单见 `packaging/rpm/supported_env.conf`)与 glibc 基线 (2.17); glibc 无法识别时同样拒装;
+不通过则中止安装, 不留下半成品文件.
+
+升级 (`rpm -Uvh`) 时现场维护的 `/home/tsc/tsc_python/ansible/hosts` (inventory, 含受管
+主机与凭据, 模块工作流要求现场编辑) **不会被覆盖**: 该文件以 `%config(noreplace)` 入包,
+升级保留现场版本, 新版模板落成 `hosts.rpmnew`; 该文件按 0600 落盘 (使用模式含明文
+凭据, 不放行同机其他账号读).
 
 `%post` 负责 rpm 本身做不到的收尾: 补模块 `run.sh` 可执行位、创建 `/var/log/tsc`
 (ansible 日志目录)、部署 profile（先补建公共入口，再放本包 drop-in）、调用 `tsc_tools`
@@ -66,7 +72,9 @@ source /home/tsc/tsc_profile.d/01-tsc_python-profile.sh # 只加载本包环境
 
 卸载时 `%preun` **无条件**删除本包 drop-in（该文件名归属本包独占），
 `%postun` 清理随之空掉的本包目录壳，包内文件由 rpm 自行删除。有意保留：`/home/tsc/tsc_profile`、
-`/home/tsc/tsc_profile.d`（含现场自定义片段）、`/var/log/tsc` 及运行期日志。
+`/home/tsc/tsc_profile.d`（含现场自定义片段）、`/var/log/tsc` 及运行期日志。现场改过的
+`ansible/hosts` 也不会被销毁——rpm 卸载时将其转存为 `hosts.rpmsave`（`ansible/` 目录壳
+因此留下，数据不再需要后可手工清理）。
 
 若目标机上已有 RPM 之前(自解压包时代)安装的 `tsc_python`, `%pre` 会先把
 `/home/tsc/tsc_tools/micromamba` 轮转为 `micromamba.bak.<时间戳>`, 避免两套文件混在一起;
@@ -289,7 +297,8 @@ uv pip compile files/requirements.in -o files/requirements.txt --no-header --no-
 不满足即中止且不留半成品:
 
 1. 本机架构与包架构一致: `x86_64` / `aarch64` (白名单见 `packaging/rpm/supported_env.conf`);
-2. glibc >= 2.17 (CentOS 7.9 构建基线; musl 系如 Alpine 无 glibc, 不适用).
+2. glibc >= 2.17 (CentOS 7.9 构建基线; musl 系如 Alpine 无 glibc, 不适用;
+   glibc 无法识别时同样拒装).
 
 凡满足上述两条的 Linux 均可安装。以下环境完成过验证 (**参考信息, 非准入条件**):
 CentOS 7.9 / RHEL 7、openEuler / Euler / HCE、KylinOS V10 (ky10)、

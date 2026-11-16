@@ -4,6 +4,19 @@
 
 1. refactor(packaging): 包内 drop-in 源 `files/profile` 改名 `files/tsc_python_profile`(无扩展名, 与 `tsc_profile` 同风格)——与 tsc_tools 2.1.15 同因: 包目录若被前置进 PATH, 裸名 `profile` 会让现场的 `source profile` 静默命中本文件而非其自家脚本; `%post` 部署目标 `01-tsc_python-profile.sh` 不变
 
+## Version=0.13.8
+
+Date=20261026
+
+1. fix(rpm, P2): `ansible/hosts` 拆出目录树、以 `%config(noreplace)` 单独入包并收紧 0600——该文件是三个模块工作流的现场编辑点 (受管主机/端口/root 明文密码), 以普通文件随目录树入包时 `rpm -U` 会用包内模板静默覆盖现场 inventory (无备份无警告); noreplace 语义下升级保留现场版本、新版模板落成 `hosts.rpmnew`, 真卸载时现场改过的版本转存 `hosts.rpmsave` 而非删除。0.13.5 放弃 base.yml `%config(noreplace)` 的理由 (schema 漂移 → `AnsibleUndefinedConfigEntry`) 不适用于 hosts——它是纯数据模板, 不存在缺新配置定义的问题。实现: `build.sh` 打包期把 stage 树中的 `tsc_python/ansible/hosts` 移出为 `stage/ansible-hosts` 并 `chmod 0600` (使用模式含明文凭据, 0644 会暴露给同机其他本地账号; nfpm 单文件条目沿用源文件 mode), `nfpm.yaml.tmpl` 增加独立 content 条目, 产物自检 `need_file` 补该路径
+2. fix(rpm, P3): `%pre` 的 glibc 门禁 fail-close——`getconf GNU_LIBC_VERSION` 检测不到时由 "WARNING + 跳过校验" 改为中止安装: musl 系 (Alpine) 上此前会放行安装、运行期才以 `version GLIBC_2.xx not found` 暴露, 与 README "musl 系不适用"的口径不符; `getconf` 属 glibc 自带, glibc 系必有, 检测不到即拒装不会误伤受支持环境。顺带把检测链里的 awk 去掉 (`${out#* }` 剥前缀取版本)——门禁脚本不再隐式依赖 gawk (nfpm depends 未声明它, awk 缺失时 `%pre` 会在 errexit 下以 127 中止且报错误导)
+3. fix(rpm, P3): `%post` 日志目录对预存在目录补 `chmod 0750`——GNU `install -d -m` 只对新建目录套 mode (实测), `/var/log/tsc` 已存在时 (tsc_tools 先建/旧版本以更松权限建过) 0750 意图静默落空, 显式 chmod 兜住"不放行 other 读"
+4. fix(modules, P3): changehostname 模块 README 的命令拼写 `roles/changenhostame.yml` 更正为 `roles/changehostname.yml` (实际文件名), 照抄即 file-not-found; 该 README 经 `gen_rag.sh` 汇入 rag.md, 错误此前随包分发
+5. fix(build, P3): 构建日志前置——`log_file` 原在 `build_target` 内才赋值, 配置摘要与 micromamba/jq 下载 (最易出网络故障的阶段) 只上控制台、不落 `log/*.log`; 现 `mkdir`/`log_file` 前置到参数解析之前, 全程可追溯; 连带 `build_target` 的 `tee` 改 `tee -a`——`log_file` 提前开启后, 无 `-a` 的 `tee` 会截断文件、冲掉已写入的前置日志 (旧实现里赋值恰在 `tee` 之前, 该问题从未暴露)
+6. feat(build): micromamba 下载补 sha256 校验, 与 jq 同一口径——按版本×架构钉死 `micromamba_sha256_<arch>` 常量 (2.9.0: x86_64 `8761c382…3040dd` / aarch64 `e705ffee…a5852f`), 下载先落 `.dl` 临时文件校验通过再 mv, 缓存命中亦复验校验和; 常量与 `jq_sha256_<arch>` 一同纳入白名单一致性断言, `supported_env.conf` 头注释 checklist 同步; 0.13.7 KNOWN_ISSUES 的"已决策接受 (仅 TLS 保护)"就此收回
+7. fix(build): `release-note.md` 版本解析锚定标题行 (`/^#+[[:space:]]*Version=/`, build.sh 与 files/pack.sh 同步)——原非锚定 `/Version=/` 取全文件第一个命中, 若未来版本条目正文在标题前出现 "`Version=`" 字样会解析到错误版本
+8. fix(docker): `RUN sh pack.sh` 改 `RUN bash pack.sh`——pack.sh 是 bash 脚本, 原写法依赖 CentOS 的 sh→bash, 换 sh=dash 的基础镜像即碎
+
 ## Version=0.13.7
 
 Date=20261024

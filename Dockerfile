@@ -93,7 +93,9 @@ COPY ./files/modules /home/tsc/build_micromamba/modules
 # 仓库根目录的文档也进入容器工作目录, 由 build.sh 打入安装包
 COPY ./release-note.md ./THIRD_PARTY_NOTICES.md ./THIRD_PARTY_NOTICES.zh_CN.md /home/tsc/build_micromamba/
 
-RUN sh /home/tsc/build_micromamba/pack.sh
+# pack.sh 是 bash 脚本 ([[ ]]/nullglob/局部关联数组), 此前以 sh 调用依赖 CentOS 的
+# sh->bash; 显式 bash 调用, 基础镜像更换 (sh=dash) 时不再碎
+RUN bash /home/tsc/build_micromamba/pack.sh
 
 
 # exporter 阶段仅供 buildx --target exporter 使用

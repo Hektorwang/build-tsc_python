@@ -149,6 +149,9 @@ chmod 0755 "${ENV_ROOT}"/modules/*/run.sh 2>/dev/null ||
 # ansible.cfg: log_path=/var/log/tsc/ansible.log
 #              retry_files_save_path=/var/log/tsc/ansible/retries
 install -d -m 0750 "${LOG_DIR}" "${LOG_DIR}/ansible" "${LOG_DIR}/ansible/retries"
+# install -d -m 只对新建目录套 mode (GNU 实测), 目录已存在时 (tsc_tools 先建/旧版本
+# 以更松权限建过) 0750 会静默落空, 显式 chmod 兜住"不放行 other 读"的意图
+chmod 0750 "${LOG_DIR}" "${LOG_DIR}/ansible" "${LOG_DIR}/ansible/retries" 2>/dev/null || true
 
 # 3. profile: 公共入口 + 本包 drop-in (须早于 gen_rag, 让它取到 TSC_MODULES_DIR)
 if ! deploy_profile; then

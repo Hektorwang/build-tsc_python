@@ -22,7 +22,7 @@
 #   0 - 成功
 ##################################################
 detect_system_info() {
-    local machine_architecture distribution distribution_version glibc_version
+    local machine_architecture distribution distribution_version glibc_version getconf_out
     machine_architecture="$(uname -m)"
     distribution="unknown"
     distribution_version="unknown"
@@ -34,7 +34,11 @@ detect_system_info() {
         distribution_version="${VERSION_ID:-unknown}"
     fi
 
-    glibc_version="$(getconf GNU_LIBC_VERSION 2>/dev/null | awk '{print $2}')"
+    # 不经 awk: 门禁脚本不隐式依赖 gawk (nfpm depends 未声明它, awk 缺失时这里会在
+    # errexit 下以 127 中止且报错误导)。"glibc 2.17" 剥掉首个空格前缀即版本号;
+    # getconf 缺失/无输出时为空串, detect_system_info 按未知回填, check_env 按拒绝处理
+    getconf_out="$(getconf GNU_LIBC_VERSION 2>/dev/null || true)"
+    glibc_version="${getconf_out#* }"
 
     echo "machine_architecture=${machine_architecture}"
     echo "os_distribution=${distribution}"
@@ -85,7 +89,12 @@ check_env() {
     fi
 
     if [[ "${current_glibc}" == "unknown" ]]; then
-        LOGWARNING "glibc version not detected (getconf GNU_LIBC_VERSION unavailable), skip baseline check"
+        # fail-close: 检测不到即拒装。musl 系 (Alpine) 的 getconf GNU_LIBC_VERSION 无输出,
+        # 旧行为 (WARNING + 跳过) 会放行安装、到运行期才以 `version GLIBC_2.xx not found`
+        # 暴露, 与 README "musl 系不适用"的口径不符; getconf 属 glibc 自带, glibc 系必有,
+        # 检测不到即拒装不会误伤受支持环境
+        LOGERROR "glibc version not detected (getconf GNU_LIBC_VERSION unavailable), cannot verify baseline ${GLIBC_BASELINE}, aborting"
+        ret=127
     elif ! version_ge "${current_glibc}" "${GLIBC_BASELINE}"; then
         LOGERROR "glibc too old: '${current_glibc}' < baseline '${GLIBC_BASELINE}'; the environment is built on glibc ${GLIBC_BASELINE} (CentOS 7.9)."
         ret=127

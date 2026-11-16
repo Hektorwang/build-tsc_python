@@ -41,6 +41,16 @@ contents:
   - src: "@STAGE_DIR@/payload/home/tsc/"
     dst: /home/tsc
 
+  # ansible/hosts 拆出目录树单独入包 (0.13.8, build.sh 把 stage 树中的该文件移出为
+  # @STAGE_DIR@/ansible-hosts 并 chmod 0600): 该文件是模块工作流的现场编辑点 (受管主机
+  # 与 SSH 凭据), 以普通文件随目录树入包时 rpm -U 会用包内模板静默覆盖现场 inventory;
+  # noreplace 语义下升级保留现场版本 (新版模板落成 hosts.rpmnew), 真卸载时现场改过的
+  # 版本转存 hosts.rpmsave 而非删除。base.yml 放弃 %config 的 schema 漂移理由不适用于
+  # hosts——它是纯数据模板, 不存在缺新配置定义的问题 (README-dev §4.11)
+  - src: "@STAGE_DIR@/ansible-hosts"
+    dst: /home/tsc/tsc_python/ansible/hosts
+    type: config|noreplace
+
 scripts:
   preinstall: "@STAGE_DIR@/rpm-scripts/preinstall"
   postinstall: "@STAGE_DIR@/rpm-scripts/postinstall"
