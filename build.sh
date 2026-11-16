@@ -600,7 +600,7 @@ package_rpm() {
         local need_file f
         need_file=(
             "/home/tsc/tsc_python/tsc_profile"
-            "/home/tsc/tsc_python/profile"
+            "/home/tsc/tsc_python/tsc_python_profile"
             "/home/tsc/tsc_python/bin/micromamba"
             "/home/tsc/tsc_python/envs/tsc_python/bin/python3"
             "/home/tsc/tsc_python/envs/tsc_python/bin/ansible"

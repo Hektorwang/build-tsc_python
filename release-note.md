@@ -1,5 +1,9 @@
 # tsc_python
 
+## Version=0.13.9
+
+1. refactor(packaging): 包内 drop-in 源 `files/profile` 改名 `files/tsc_python_profile`(无扩展名, 与 `tsc_profile` 同风格)——与 tsc_tools 2.1.15 同因: 包目录若被前置进 PATH, 裸名 `profile` 会让现场的 `source profile` 静默命中本文件而非其自家脚本; `%post` 部署目标 `01-tsc_python-profile.sh` 不变
+
 ## Version=0.13.7
 
 Date=20261024

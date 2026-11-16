@@ -28,7 +28,7 @@ release-note.md                     版本号来源 (文件内第一个 `Version
 files/
   pack.sh                           容器内打包脚本 (安装树 + jq 随包 + build-info.json)
   tsc_profile                       tsc_profile 公共入口模板 (%post 在入口缺失时部署)
-  profile                           本包 drop-in 源 (%post 部署为 tsc_profile.d/01-tsc_python-profile.sh)
+  tsc_python_profile                本包 drop-in 源 (%post 部署为 tsc_profile.d/01-tsc_python-profile.sh)
   ansible/                          ansible.cfg / hosts / roles (随包分发)
   modules/tsc_python_*/             插件模块 (随包分发, 与 tsc_tools 自有模块并存)
   smoke_test.sh                     安装后冒烟测试 (随包分发)
@@ -87,9 +87,9 @@ KNOWN_ISSUES.md                     审查发现的暂缓事项清单 (不随包
    |---|---|---|
    | `/home/tsc/tsc_profile` | 公共入口，谁先装谁建，只 source `tsc_profile.d/*.sh` | 都不删 |
    | `tsc_profile.d/00-tsc_tools-profile.sh` | tsc_tools `%post` | tsc_tools `%preun` |
-   | `tsc_profile.d/01-tsc_python-profile.sh` | 本包 `%post`（源为 `/home/tsc/tsc_python/profile`） | 本包 `%preun` |
+   | `tsc_profile.d/01-tsc_python-profile.sh` | 本包 `%post`（源为 `/home/tsc/tsc_python/tsc_python_profile`） | 本包 `%preun` |
 
-   加载顺序 = 文件名排序 = 变量拼装顺序。片段把 `/home/tsc/tsc_python/profile` 拷过去即可，`Profile` 源与公用入口模板 `tsc_profile` 都随包放在环境根目录。tsc_tools >= 2.1.8 起其 drop-in 名为 `00-tsc_tools-profile.sh`（2.1.7 为 `01-tsc_tools-profile.sh`，与本包同前缀、先后靠字母序），以数字前缀明确保序：tsc_tools 片段先加载（前插 PATH、后插其模块目录），本包片段后加载（激活环境、前插自己的模块目录）；两侧对 `TSC_MODULES_DIR` 的拼装方向不同（本包前插、tsc_tools 后插），最终 PATH 中本包环境优先、模块目录本包在前，与上表语义自洽——两种加载顺序下结果一致，不因前缀变化而翻转。
+   加载顺序 = 文件名排序 = 变量拼装顺序。片段把 `/home/tsc/tsc_python/tsc_python_profile` 拷过去即可，`Profile` 源与公用入口模板 `tsc_profile` 都随包放在环境根目录。tsc_tools >= 2.1.8 起其 drop-in 名为 `00-tsc_tools-profile.sh`（2.1.7 为 `01-tsc_tools-profile.sh`，与本包同前缀、先后靠字母序），以数字前缀明确保序：tsc_tools 片段先加载（前插 PATH、后插其模块目录），本包片段后加载（激活环境、前插自己的模块目录）；两侧对 `TSC_MODULES_DIR` 的拼装方向不同（本包前插、tsc_tools 后插），最终 PATH 中本包环境优先、模块目录本包在前，与上表语义自洽——两种加载顺序下结果一致，不因前缀变化而翻转。
 
 6. **包外的东西要么记清单要么明确不删**。drop-in 由 `%post` 部署（不在 rpm 文件清单里），但**文件名归属本包独占**：每次安装/升级都用包内版本刷新，`%preun` 真卸载时**无条件**删除——不保留本地修改（现场要自定义片段就另建文件，如 `99-local-profile.sh`，别占用本包的名字）。公用入口 `tsc_profile`、`tsc_profile.d` 目录、`/var/log/tsc`、`%pre` 轮转出的备份一律保留。
 
@@ -103,7 +103,7 @@ KNOWN_ISSUES.md                     审查发现的暂缓事项清单 (不随包
 /home/tsc/tsc_python/                       环境本体根目录 (mamba root + envs/tsc_python)
 /home/tsc/tsc_python/<docs>                 随包文档与工具 (release-note/readme/THIRD_PARTY_NOTICES/smoke_test/patch_ansible/build-info)
 /home/tsc/tsc_python/tsc_profile            tsc_profile 公共入口模板 (%post 在入口缺失时部署)
-/home/tsc/tsc_python/profile                本包 drop-in 源 (%post 部署为 tsc_profile.d/01-tsc_python-profile.sh)
+/home/tsc/tsc_python/tsc_python_profile  本包 drop-in 源 (%post 部署为 tsc_profile.d/01-tsc_python-profile.sh)
 /home/tsc/tsc_python/ansible/               ansible.cfg / hosts / roles
 /home/tsc/tsc_python/modules/tsc_python_*/  插件模块
 ```

@@ -8,6 +8,10 @@ eval "$("${MAMBA_ROOT_PREFIX}"/bin/micromamba shell hook --shell bash)"
 micromamba activate tsc_python
 export ANSIBLE_CONFIG=/home/tsc/tsc_python/ansible/ansible.cfg
 
+# uv run 不做隐式依赖同步 (等价 --no-sync): 内网/离线机 venv 缺包时直接报错,
+# 不会联网拉 PyPI 卡死; 显式 uv sync / uv add 不受影响。
+export UV_NO_SYNC=1
+
 # 模块目录: 本包模块独占 /home/tsc/tsc_python/modules (与 tsc_tools 的 modules 解耦)。
 # tsc (tsc_tools >= 2.1.7) 按 ${TSC_MODULES_DIR} (冒号分隔多目录) 遍历模块并据此生成 rag,
 # 所以本包也要声明一次——否则单独安装 tsc_python 时模块发现不了。

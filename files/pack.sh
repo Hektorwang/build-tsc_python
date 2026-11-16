@@ -146,7 +146,7 @@ PYEOF
 #   tsc_python/                         环境本体根目录 (mamba root + envs/tsc_python)
 #   tsc_python/<docs>                   随包文档与工具
 #   tsc_python/tsc_profile              tsc_profile 公共入口模板 (%post 在首次安装时部署)
-#   tsc_python/profile                  本包 drop-in 源 (%post 部署为 tsc_profile.d/01-tsc_python-profile.sh)
+#   tsc_python/tsc_python_profile      本包 drop-in 源 (%post 部署为 tsc_profile.d/01-tsc_python-profile.sh)
 #   tsc_python/ansible/                ansible.cfg / hosts / roles
 #   tsc_python/modules/tsc_python_*/   插件模块 (由本包独占目录, 与 tsc_tools 自有 modules 解耦)
 ##################################################
@@ -173,9 +173,9 @@ prepare_payload() {
         "${PAYLOAD_DIR}"/home/tsc/tsc_python/
 
     # profile 公共入口模板 + 本包 drop-in 源 (由 %post 部署到 /home/tsc 下)
-    \cp "${WORK_DIR}"/tsc_profile "${WORK_DIR}"/profile "${PAYLOAD_DIR}"/home/tsc/tsc_python/
+    \cp "${WORK_DIR}"/tsc_profile "${WORK_DIR}"/tsc_python_profile "${PAYLOAD_DIR}"/home/tsc/tsc_python/
     chmod 0644 "${PAYLOAD_DIR}"/home/tsc/tsc_python/tsc_profile \
-        "${PAYLOAD_DIR}"/home/tsc/tsc_python/profile
+        "${PAYLOAD_DIR}"/home/tsc/tsc_python/tsc_python_profile
 
     # ansible 配置与 roles (随本包装在 tsc_python 树下, 与 tsc_tools 解耦)
     \cp -r "${WORK_DIR}"/ansible "${PAYLOAD_DIR}"/home/tsc/tsc_python/ansible
