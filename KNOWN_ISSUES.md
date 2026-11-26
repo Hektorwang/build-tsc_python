@@ -78,8 +78,9 @@ errexit/nounset/pipefail 三件套)。
 
 ## 4. 已决策接受 (2026-10-24, 不再处理)
 
-- conda 层依赖不锁定 (仅 python 钉版, 其余随 conda-forge 漂移; conda-forge glibc 基线
-  迁移时由 `check_glibc_baseline` fail-close 拦下, 不会流出超标产物) —— 决策: 忽略;
+- conda 层依赖: 0.13.10 起显式条目钉版本 (`name=version`, 不钉 build string), 传递依赖仍随
+  conda-forge 漂移; conda-forge glibc 基线迁移时由 `check_glibc_baseline` fail-close 拦下,
+  不会流出超标产物 —— 决策: 接受传递依赖漂移;
 - `ansible.cfg` 的 `host_key_checking=False` —— 团队实施设计, 接受。
 
 (原"micromamba 下载无 sha256 校验"已于 0.13.8 修复并移出本清单。)

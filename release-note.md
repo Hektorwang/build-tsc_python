@@ -1,5 +1,14 @@
 # tsc_python
 
+## Version=0.13.10
+
+Date=20261126
+
+1. fix(deps): 移除 `passlib`——0.12.0 曾把它作为 `password_hash` 的控制器侧依赖引入, 但该库自 2020 年 1.7.4 后停止维护, 且 Python 3.13 移除了 `crypt` 模块, 此前只能靠它兜底; ansible-core 2.21 起 `password_hash` 内置 `CryptFacade` (ctypes 直接调用 libcrypt, 优先于 passlib, 仅 crypt 不支持的算法才回落 passlib), 本包锁定的 2.21.4 已覆盖。两个 role 的使用点均为 `password_hash('sha512')`, md5/sha256/sha512/bcrypt 全在 crypt 路径内; 实测在无 passlib 环境下 sha512/sha256/bcrypt 与整本 playbook 均正常。**版本红线**: ansible-core 必须 >=2.21——2.18/2.19/2.20 的 `do_encrypt` 只有 passlib 分支, 缺包时建用户任务直接失败; 将来若回退 ansible-core, 必须同时恢复 passlib。
+2. chore(deps): `requirements.txt` 与实测环境对齐——`pycparser` 3.0 → 3.11 (该包由 conda 层提供、pip 层安装前被 Dockerfile 过滤, 锁文件里的版本只是解析约束, 此前与实际环境不一致); 其余 18 项与安装树逐一核对一致, 未改动。
+3. chore(deps): `environment.yml` 60 个显式条目全部钉到 0.13.10 实测版本 (含 `libxcrypt=4.4.38`)——只钉版本、不钉 build string, 保证 x86_64/aarch64 双架构都能求解, 具体 build 由 conda 按目标架构与 python 版本选择; 传递依赖仍随 conda-forge 漂移。唯一例外是 `charset-normalizer>=3.5.0,<3.5.3` (区间钉法): 3.5.2/3.5.3 只有 linux-64/osx-64/win-64 构建, 钉死 3.5.2 会让 aarch64 求解失败; 区间钉法下 x86_64 解到 3.5.2 (与实测环境一致)、aarch64 解到 3.5.1。两架构 dry-run 均已验证 (各 69 包)。`libxcrypt` 是本次移除 passlib 后的实际密码哈希实现, 不要按"冗余条目"清理 (另有 `cyrus-sasl` 的传递依赖兜底)。
+4. docs(KNOWN_ISSUES): "conda 层依赖不锁定"的已决策接受项随本次钉版失效, 改写为钉版后的口径: 显式条目钉版本、传递依赖不锁, glibc 基线仍由 `check_glibc_baseline` fail-close 兜底。
+
 ## Version=0.13.9
 
 1. refactor(packaging): 包内 drop-in 源 `files/profile` 改名 `files/tsc_python_profile`(无扩展名, 与 `tsc_profile` 同风格)——与 tsc_tools 2.1.15 同因: 包目录若被前置进 PATH, 裸名 `profile` 会让现场的 `source profile` 静默命中本文件而非其自家脚本; `%post` 部署目标 `01-tsc_python-profile.sh` 不变

@@ -63,9 +63,10 @@
 # xlsxwriter
 # zabbix-utils[async]
 # 已废弃: ansible==2.9.27 无法在 python 3.13 下工作, 改用 ansible-core
+# ansible-core 必须 >=2.21: 2.18~2.20 的 password_hash 只有 passlib 分支, 本包已移除 passlib;
+# 2.21 起内置 ctypes+libxcrypt 实现 (优先于 passlib), 运行前提是随包 libxcrypt。
 ansible-core
 asyncssh
-passlib
 pexpect
 psutil
 watchdog
