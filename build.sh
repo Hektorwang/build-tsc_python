@@ -194,7 +194,9 @@ LOGINFO "Generated: ${condarc_tmp} / ${pip_conf_tmp}"
 # python 主.次版本 (产物自检 need_file 里 base.yml 等条目锚定 lib/python<MM> 路径)
 # 用 sed -n '1p' 而非 head -n1: head 提前退出会让上游 grep 收到 SIGPIPE 返回 141,
 # 在 pipefail + errexit 下脚本无任何提示直接中断
-py_mm="$(grep -oE 'python=[0-9]+\.[0-9]+' "${env_yml_tmp}" | sed -n '1p' | sed 's/^python=//')" || py_mm=""
+# 必须锚定到列表项行首: 未锚定的 python= 正则会命中 brotli-python=1.2.0 这类包名,
+# 让 py_mm 变成 1.2 (0.13.10 给 brotli-python 钉上版本号后该缺陷才暴露)
+py_mm="$(sed -n 's/^[[:space:]]*-[[:space:]]*python=\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' "${env_yml_tmp}" | sed -n '1p')" || py_mm=""
 py_mm="${py_mm:-3.13}"
 
 # ─────────────────────────────────────────────

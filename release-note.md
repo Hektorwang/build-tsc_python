@@ -9,6 +9,7 @@ Date=20261126
 3. chore(deps): `environment.yml` 60 个显式条目全部钉到 0.13.10 实测版本 (含 `libxcrypt=4.4.38`)——只钉版本、不钉 build string, 保证 x86_64/aarch64 双架构都能求解, 具体 build 由 conda 按目标架构与 python 版本选择; 传递依赖仍随 conda-forge 漂移。唯一例外是 `charset-normalizer>=3.5.0,<3.5.3` (区间钉法): 3.5.2/3.5.3 只有 linux-64/osx-64/win-64 构建, 钉死 3.5.2 会让 aarch64 求解失败; 区间钉法下 x86_64 解到 3.5.2 (与实测环境一致)、aarch64 解到 3.5.1。两架构 dry-run 均已验证 (各 69 包)。`libxcrypt` 是本次移除 passlib 后的实际密码哈希实现, 不要按"冗余条目"清理 (另有 `cyrus-sasl` 的传递依赖兜底)。
 4. docs(KNOWN_ISSUES): "conda 层依赖不锁定"的已决策接受项随本次钉版失效, 改写为钉版后的口径: 显式条目钉版本、传递依赖不锁, glibc 基线仍由 `check_glibc_baseline` fail-close 兜底。
 5. docs(README-dev): 目录树中本包 drop-in 源文件名更正为 `files/tsc_python_profile`——0.13.9 改名时该行被并发工作区改回旧名 `profile`, 与随包文件、`Dockerfile` 的 COPY 清单及 `build.sh` 的 `need_file` 断言不一致 (纯文档, 不影响产物)。
+6. fix(build): `build.sh` 的 `py_mm` 解析锚定到 `environment.yml` 的 `- python=` 列表项——原正则 `python=[0-9]+\.[0-9]+` 未锚定, 本次钉版后先命中 `- brotli-python=1.2.0`, `py_mm` 解析成 `1.2`, 打包在 python 主.次版本一致性断言处 fail-close 中止 (未钉版时 `- brotli-python` 不带版本号, 正则无匹配, 缺陷从未暴露)。
 
 ## Version=0.13.9
 
