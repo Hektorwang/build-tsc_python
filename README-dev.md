@@ -28,7 +28,7 @@ release-note.md                     版本号来源 (文件内第一个 `Version
 files/
   pack.sh                           容器内打包脚本 (安装树 + jq 随包 + build-info.json)
   tsc_profile                       tsc_profile 公共入口模板 (%post 在入口缺失时部署)
-  profile                           本包 drop-in 源 (%post 部署为 tsc_profile.d/01-tsc_python-profile.sh)
+  tsc_python_profile                本包 drop-in 源 (%post 部署为 tsc_profile.d/01-tsc_python-profile.sh)
   ansible/                          ansible.cfg / hosts / roles (随包分发)
   modules/tsc_python_*/             插件模块 (随包分发, 与 tsc_tools 自有模块并存)
   smoke_test.sh                     安装后冒烟测试 (随包分发)
